@@ -323,6 +323,13 @@ Object.assign(__erEN, {
   "Что нового теперь сохраняется заметкой в хранилище — не нужно запоминать окно":
     "What's new is saved as a note in your vault, so there is nothing to memorise from a window",
 });
+// 3.1.1
+Object.assign(__erEN, {
+  "Обложки книг в библиотеке снова строятся: PDF рисовался в картинку через возможности браузера, которых в Obsidian ещё нет":
+    "Book covers are built again: drawing a PDF to an image used browser features Obsidian does not have yet",
+  "Это же чинит картинки и страницы-сканы внутри PDF — они рисуются тем же способом":
+    "The same fix covers pictures and scanned pages inside a PDF, which are drawn the same way",
+});
 // Module-scope, not a global. It was on globalThis/window, which the popout
 // guidance rightly flags — but the honest fix is that a module's own setting
 // has no business on the window object at all. One value, one place.
@@ -6395,6 +6402,10 @@ function bookNoteAction(settings, bookPath) {
   return asked[bookPath] ? "prompted" : "ask";
 }
 const WHATS_NEW = [
+  { v: "3.1.1", items: [
+    __ertr("Обложки книг в библиотеке снова строятся: PDF рисовался в картинку через возможности браузера, которых в Obsidian ещё нет"),
+    __ertr("Это же чинит картинки и страницы-сканы внутри PDF — они рисуются тем же способом")
+  ] },
   { v: "3.1.0", items: [
     __ertr("Плагин снова открывается там, где раньше писал «Не удалось загрузить»: на Obsidian постарше, на планшетах Huawei и на части Windows-сборок"),
     __ertr("Цитаты можно складывать в одну заметку книги: в окне названия появилась кнопка «В заметку книги», а в меню выделения — «Текстом в заметку книги»"),
@@ -8471,13 +8482,14 @@ const LibraryModal = class extends Modal {
   async makePdfThumb(file) {
     await setupWorker(this.app);
     const buf = await this.app.vault.readBinary(file);
-    const doc = await pdfjsLib.getDocument({
+    const task = pdfjsLib.getDocument({
       data: buf,
       // Книга — чужой файл. У pdf.js есть известная дыра, где специально
       // собранный шрифт выполняет свой код через eval; отключение eval —
       // штатное лечение от неё (CVE-2024-4367). На вёрстку не влияет.
       isEvalSupported: false,
-    }).promise;
+    });
+    const doc = await task.promise;
     const page = await doc.getPage(1);
     // Render crisp (~520px wide), flattened onto white, capped so the cached
     // data-URL stays small. Old version used scale 0.5 \u2192 blurry thumbnails.
@@ -8492,7 +8504,11 @@ const LibraryModal = class extends Modal {
     ctx.fillRect(0, 0, cv.width, cv.height);
     await page.render({ canvasContext: ctx, viewport: vp }).promise;
     const url = cv.toDataURL("image/jpeg", 0.85);
-    doc.destroy();
+    // Документ закрывается через свою задачу загрузки: в pdf.js 6 у самого
+    // документа метода destroy больше нет, и вызов старого валил всю функцию
+    // ПОСЛЕ того, как обложка уже нарисована — картинка была готова и
+    // выбрасывалась. Уборка не имеет права отменять результат, поэтому в try.
+    try { await task.destroy(); } catch { /* optional step; a failure here must not interrupt reading */ }
     return url;
   }
   // FB2 keeps its cover as a base64 <binary>, so the "thumbnail" is already a

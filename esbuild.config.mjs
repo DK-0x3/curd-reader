@@ -10,12 +10,26 @@ import path from "path";
 // с «ReferenceError: Iterator is not defined» ещё до запуска плагина — и Obsidian
 // показывает «Не удалось загрузить плагин». Пять строк ниже возвращают этим
 // устройствам работающую читалку; на свежих движках блок не делает ничего.
+//
+// Второй блок — про то же самое, но бьёт по всем без разбора. pdf.js 6 внутри
+// пользуется Map.prototype.getOrInsertComputed: метод из свежего стандарта,
+// в Chrome он появился только в 133-м, а в Obsidian 1.13 движок 130-й. Свой
+// полифил pdf.js везёт, но до рантайма тот не доезжает — проверено в живом
+// приложении. Ломалась на этом отрисовка PDF в картинку: обложки книг в
+// библиотеке молча не строились. Четыре метода ниже возвращают её на место.
 const iteratorShim = `(function(){try{if(typeof globalThis.Iterator==="function")return;
 var proto=Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
 var Iter=function Iterator(){throw new TypeError("Iterator is abstract")};
 Iter.prototype=proto;
 try{Object.defineProperty(proto,"constructor",{value:Iter,writable:true,configurable:true})}catch(e){}
 globalThis.Iterator=Iter}catch(e){}})();
+(function(){try{
+var mk=function(C){if(!C||!C.prototype)return;var P=C.prototype;
+if(typeof P.getOrInsertComputed!=="function"){Object.defineProperty(P,"getOrInsertComputed",{value:function(key,fn){
+if(this.has(key))return this.get(key);var v=fn(key);this.set(key,v);return v},writable:true,configurable:true})}
+if(typeof P.getOrInsert!=="function"){Object.defineProperty(P,"getOrInsert",{value:function(key,val){
+if(this.has(key))return this.get(key);this.set(key,val);return val},writable:true,configurable:true})}};
+mk(globalThis.Map);mk(globalThis.WeakMap)}catch(e){}})();
 `;
 
 const banner = `/*
