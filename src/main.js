@@ -330,6 +330,21 @@ Object.assign(__erEN, {
   "Это же чинит картинки и страницы-сканы внутри PDF — они рисуются тем же способом":
     "The same fix covers pictures and scanned pages inside a PDF, which are drawn the same way",
 });
+// 3.1.2
+Object.assign(__erEN, {
+  "PDF, у которых шрифт не приносит таблицу букв, больше не показываются кашей: текст восстанавливается и его снова можно выделять и искать":
+    "PDFs whose font brings no character table are no longer shown as gibberish: the text is restored, and it can be selected and searched again",
+  "Если восстановить текст нельзя — страница показывается картинкой, как в самом Obsidian, а не набором значков":
+    "When the text cannot be restored, the page is shown as a picture, the way Obsidian itself shows it, instead of a row of odd symbols",
+  "На iPhone и iPad снова открываются PDF — раньше вместо книги была ошибка про readableStream":
+    "PDFs open again on iPhone and iPad, where the book used to be replaced by a readableStream error",
+  "На Android подсветка зон нажатия больше не залипает на экране после тапа":
+    "On Android the tap-zone tint no longer stays burned on the screen after a tap",
+  "Ползунок прокрутки виден на светлых темах, а не только на тёмных":
+    "The scrollbar is visible on light themes, not only on dark ones",
+  "Переход по сноске в режиме «прокруткой» ведёт к сноске, а не в начало книги":
+    "In scrolling mode a footnote link now leads to the footnote instead of the start of the book",
+});
 // Module-scope, not a global. It was on globalThis/window, which the popout
 // guidance rightly flags — but the honest fix is that a module's own setting
 // has no business on the window object at all. One value, one place.
@@ -3246,11 +3261,21 @@ function followFootnote(view, ref) {
   const target = flow.querySelector(`[data-er-id="${CSS.escape(ref)}"]`);
   if (!target) return false;
   const from = view.pager.currentSpread;
-  const fRect = flow.getBoundingClientRect();
-  const x = target.getBoundingClientRect().left - fRect.left;
-  const spread = Math.max(0, Math.min(
-    Math.floor(Math.round(x / (view.pager.sw / (view.pager.cols || 1))) / (view.pager.cols || 1)),
-    view.pager.total - 1));
+  // Прыжок считается по номеру абзаца, а не по координате на экране.
+  //
+  // Раньше место сноски мерилось сдвигом слева — это верно, только пока текст
+  // разложен колонками. В режиме «прокруткой» ничего не сдвинуто по горизонтали,
+  // сдвиг у любой сноски выходил нулевым, и переход по ссылке уносил в самое
+  // начало книги. Номер абзаца одинаково работает в обоих режимах.
+  const blocks = Array.from(flow.querySelectorAll("p,h1,h2,h3,h4"));
+  const owner = (target.closest && target.closest("p,h1,h2,h3,h4"))
+    || (target.querySelector && target.querySelector("p,h1,h2,h3,h4"))
+    || target;
+  const idx = blocks.indexOf(owner);
+  // Абзац не нашёлся — лучше не делать ничего, чем увозить читателя на первую
+  // страницу: клик просто останется без последствий.
+  if (idx < 0) return false;
+  const spread = view.pager.spreadForBlock(idx);
   const [cur, tot] = view.pager.jumpTo(spread);
   (view.updateUI || view._updateUI).call(view, cur, tot);
   showFootnoteReturn(view, from);
@@ -3837,6 +3862,7 @@ async function extractPdf(file, app, settings = {}, onProgress) {
     if (onProgress && (i === 1 || i % 4 === 0 || i === total)) onProgress(i, total);
     const page = await doc.getPage(i);
     const tc = await page.getTextContent();
+    pdfFixShiftedCyrillic(tc.items);
     const textLen = tc.items.reduce((n, it) => n + (typeof it.str === "string" ? it.str.replace(/\s+/g, "").length : 0), 0);
     const view = page.view || [0, 0, 612, 792];
     const pw = Math.max(1, Math.round(Math.abs(view[2] - view[0])));
@@ -4207,7 +4233,64 @@ function pdfTextLooksUnreadable(items) {
   const tokens = text.split(/\s+/).filter(Boolean);
   if (tokens.length < 30) return false;
   const singles = tokens.filter((t) => t.length === 1).length;
-  return singles / tokens.length > 0.7;
+  if (singles / tokens.length > 0.7) return true;
+  // Второй признак: текст набран знаками, которых в книгах не бывает.
+  //
+  // Так выглядит книга, у которой шрифт не приносит таблицу соответствия:
+  // нарисована она правильно, а извлечённый текст — «ɂɫɩɨɥɶɡɨɜɚɧɢɟ» вместо
+  // «Использование». Прошлая проверка ловила только рассыпанные по одной букве
+  // страницы и такое пропускала — человек видел кашу вместо текста.
+  //
+  // Считаются не «незнакомые алфавиты» (так под нож попали бы арабский,
+  // иврит и иероглифы — на них читают), а ровно те блоки, куда сваливаются
+  // буквы сломанного шрифта: латинские расширения с фонетикой, зона для
+  // частного использования и служебные коды.
+  const letters = text.replace(/\s/g, "");
+  if (letters.length < 60) return false;
+  let junk = 0;
+  for (const ch of letters) {
+    const c = ch.codePointAt(0);
+    if ((c >= 384 && c <= 767) || (c >= 57344 && c <= 63743) || (c < 32 && c !== 9 && c !== 10 && c !== 13)) junk++;
+  }
+  return junk / letters.length > 0.35;
+}
+// Кириллица, уехавшая в блок латинских расширений.
+//
+// Частый случай в PDF из старых конвертеров: буквы лежат ровно на 0x1D6 ниже
+// своего места, и «Маркетинг» приезжает как «Ɇɚɪɤɟɬɢɧɝ». Рисуется страница
+// правильно, поэтому в самом Obsidian такой файл читается, а извлечённый текст
+// оказывается кашей. Сдвиг обратим, и это лучше, чем показывать страницу
+// картинкой: текст снова можно выделять, искать и цитировать.
+const PDF_CYR_SHIFT = 470;
+function unshiftCyrillic(s) {
+  let out = "";
+  for (const ch of String(s)) {
+    const c = ch.codePointAt(0);
+    // Пробел в таких книгах тоже приезжает не собой, а служебным кодом — между
+    // словами получался чёрный прямоугольник. Служебные символы в книге не
+    // значат ничего, поэтому все они становятся пробелом.
+    if (c < 32 && c !== 9 && c !== 10 && c !== 13) out += " ";
+    else out += c >= 384 && c <= 687 ? String.fromCodePoint(c + PDF_CYR_SHIFT) : ch;
+  }
+  return out;
+}
+// Чинится страница только тогда, когда после сдвига получается именно кириллица,
+// а не другая каша: иначе текст остаётся как был и страница уходит картинкой.
+function pdfItemsLookShifted(items) {
+  const text = (items || []).map((it) => typeof it.str === "string" ? it.str : "").join(" ");
+  const letters = text.replace(/\s/g, "");
+  if (letters.length < 40) return false;
+  const odd = letters.match(/[ƀ-ʯ]/g);
+  if (!odd || odd.length / letters.length < 0.3) return false;
+  const fixed = odd.filter((ch) => /[А-яЁё]/.test(unshiftCyrillic(ch)));
+  return fixed.length / odd.length > 0.9;
+}
+function pdfFixShiftedCyrillic(items) {
+  if (!pdfItemsLookShifted(items)) return false;
+  for (const it of items) {
+    if (typeof it.str === "string") it.str = unshiftCyrillic(it.str);
+  }
+  return true;
 }
 function blockTexts(flow) {
   if (!flow) return [];
@@ -6402,6 +6485,14 @@ function bookNoteAction(settings, bookPath) {
   return asked[bookPath] ? "prompted" : "ask";
 }
 const WHATS_NEW = [
+  { v: "3.1.2", items: [
+    __ertr("На iPhone и iPad снова открываются PDF — раньше вместо книги была ошибка про readableStream"),
+    __ertr("PDF, у которых шрифт не приносит таблицу букв, больше не показываются кашей: текст восстанавливается и его снова можно выделять и искать"),
+    __ertr("Если восстановить текст нельзя — страница показывается картинкой, как в самом Obsidian, а не набором значков"),
+    __ertr("На Android подсветка зон нажатия больше не залипает на экране после тапа"),
+    __ertr("Ползунок прокрутки виден на светлых темах, а не только на тёмных"),
+    __ertr("Переход по сноске в режиме «прокруткой» ведёт к сноске, а не в начало книги")
+  ] },
   { v: "3.1.1", items: [
     __ertr("Обложки книг в библиотеке снова строятся: PDF рисовался в картинку через возможности браузера, которых в Obsidian ещё нет"),
     __ertr("Это же чинит картинки и страницы-сканы внутри PDF — они рисуются тем же способом")

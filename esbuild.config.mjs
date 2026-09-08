@@ -17,6 +17,12 @@ import path from "path";
 // полифил pdf.js везёт, но до рантайма тот не доезжает — проверено в живом
 // приложении. Ломалась на этом отрисовка PDF в картинку: обложки книг в
 // библиотеке молча не строились. Четыре метода ниже возвращают её на место.
+//
+// Третий блок — про iPhone и iPad. pdf.js читает файл строкой
+// `for await (const value of readableStream)`, а WebKit научился так делать
+// только в Safari 18.4: на iOS 17 книга не открывалась вовсе, с ошибкой
+// «undefined is not a function (near '…value of readableStream…')». Ниже —
+// тот самый недостающий обход потока, собранный из его же getReader().
 const iteratorShim = `(function(){try{if(typeof globalThis.Iterator==="function")return;
 var proto=Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
 var Iter=function Iterator(){throw new TypeError("Iterator is abstract")};
@@ -30,6 +36,16 @@ if(this.has(key))return this.get(key);var v=fn(key);this.set(key,v);return v},wr
 if(typeof P.getOrInsert!=="function"){Object.defineProperty(P,"getOrInsert",{value:function(key,val){
 if(this.has(key))return this.get(key);this.set(key,val);return val},writable:true,configurable:true})}};
 mk(globalThis.Map);mk(globalThis.WeakMap)}catch(e){}})();
+(function(){try{var RS=globalThis.ReadableStream;
+if(typeof RS!=="function"||typeof Symbol!=="function"||!Symbol.asyncIterator)return;
+if(RS.prototype[Symbol.asyncIterator])return;
+var values=function(opts){var reader=this.getReader();var keep=!!(opts&&opts.preventCancel);
+return{next:function(){return reader.read()},
+return:function(v){if(keep){reader.releaseLock();return Promise.resolve({value:v,done:true})}
+var c=reader.cancel(v);reader.releaseLock();return c.then(function(){return{value:v,done:true}})},
+throw:function(e){reader.releaseLock();return Promise.reject(e)}};};
+Object.defineProperty(RS.prototype,"values",{value:values,writable:true,configurable:true});
+Object.defineProperty(RS.prototype,Symbol.asyncIterator,{value:values,writable:true,configurable:true})}catch(e){}})();
 `;
 
 const banner = `/*
