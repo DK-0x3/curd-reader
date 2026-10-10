@@ -1,13 +1,17 @@
 {
-  "name": "elton-reader-books",
-  "version": "3.1.2",
+  "name": "curd-reader",
+  "version": "1.0.0",
   "description": "Read EPUB, FB2 and PDF books inside Obsidian, highlight passages and turn them into notes.",
   "main": "main.js",
   "type": "module",
   "scripts": {
     "postinstall": "node patch-pdfjs.cjs",
     "dev": "node esbuild.config.mjs",
-    "build": "node esbuild.config.mjs production && node patch-pdfjs.cjs"
+    "build": "node esbuild.config.mjs production && node patch-pdfjs.cjs",
+    "deploy": "npm run build && node scripts/deploy.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "lint": "eslint src scripts tests",
+    "release:prepare": "npm test && npm run lint && npm run build && node scripts/release.mjs"
   },
   "keywords": [
     "obsidian",
@@ -18,24 +22,27 @@
     "reader",
     "highlights"
   ],
-  "author": "Elton Labs",
+  "author": "DK-0x3; original project by Elton Labs",
   "license": "MIT",
   "devDependencies": {
-    "esbuild": "0.28.1",
+    "esbuild": "0.28.2",
     "eslint": "^9.39.5",
-    "eslint-plugin-obsidianmd": "^0.4.1",
+    "eslint-plugin-obsidianmd": "^0.4.2",
     "jsdom": "^29.1.1",
-    "obsidian": "latest"
+    "obsidian": "1.14.4"
   },
   "dependencies": {
     "epubjs": "^0.3.93",
-    "jszip": "^3.10.1",
-    "localforage": "^1.10.0",
-    "pdfjs-dist": "^6.2.108"
+    "jszip": "^3.10.2",
+    "pdfjs-dist": "6.4.299"
   },
   "overrides": {
     "@xmldom/xmldom": "^0.9.12",
-    "brace-expansion": "^5.0.9",
-    "tar": "^7.5.22"
+    "tar": "^7.5.22",
+    "moment": "^2.31.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DK-0x3/curd-reader.git"
   }
 }

@@ -1,4 +1,5 @@
 node_modules/
+.local/
 # package-lock.json IS committed: it pins the exact library versions the release
 # was built with, so a reviewer's `npm install` reproduces the same bundle.
 
@@ -26,3 +27,7 @@ tools-*.cjs
 # Промо-ролик и вспомогательные артефакты — не часть плагина.
 promo-video/
 main.js.json
+
+# Generated release bundles and test scratch files.
+dist/
+coverage/

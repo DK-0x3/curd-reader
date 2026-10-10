@@ -1984,3 +1984,105 @@ body:not(.is-mobile) .er-bot {
   .er-lib-fitbtn svg { width: 13px; height: 13px; }
   .er-lib-fitbtn:active { opacity: 1; }
 }
+
+/* Collapsed contents: only the visible branch has rows and page badges. */
+.er-toc-tools { display:flex; align-items:center; gap:8px; padding:10px 14px; }
+.er-toc-tools .er-toc-find-input { flex:1; min-width:0; }
+.er-toc-tree { flex-shrink:0; overflow-anchor:none; }
+.er-toc-collapse { flex:none; font-size:11px; }
+.er-toc-tree-item { display:flex; align-items:center; gap:4px; padding:2px 10px 2px calc(8px + var(--er-toc-depth,0)*14px); border:0; opacity:1; background:transparent; cursor:default; }
+.er-toc-tree-item:hover { background:transparent; }
+.er-toc-toggle,.er-toc-toggle-spacer { flex:0 0 24px; width:24px; min-width:24px; }
+.er-toc-toggle { padding:0; height:28px; box-shadow:none; border:0; background:transparent; color:var(--er-muted); font-size:16px; }
+.er-toc-link { flex:1; min-width:0; display:flex; flex-direction:column; align-items:flex-start; gap:3px; height:auto; padding:8px 4px; text-align:left; border:0; background:transparent; color:var(--er-text); box-shadow:none; white-space:normal; line-height:1.4; }
+.er-toc-link .er-toc-label { font-size:13px; overflow-wrap:anywhere; }
+.er-toc-tree-item[aria-level="1"] .er-toc-label { font-weight:650; }
+.er-toc-tree-item.active .er-toc-label { color:var(--er-accent); }
+.er-toc-tree .er-toc-link,.er-toc-tree .er-toc-toggle,
+.er-toc-tree .er-toc-link:hover,.er-toc-tree .er-toc-toggle:hover,
+.er-toc-tree .er-toc-link:active,.er-toc-tree .er-toc-toggle:active {
+  appearance:none; background:transparent; background-image:none; box-shadow:none; border:0; border-radius:0;
+}
+.er-toc-tree .er-toc-link { font-family:inherit; font-weight:400; color:var(--er-text); }
+.er-toc-tree .er-toc-link:hover .er-toc-label { color:var(--er-accent); }
+.er-toc-tree-item.active .er-toc-link { color:var(--er-accent); font-weight:600; }
+.er-toc-tree .er-toc-where { color:var(--er-muted); font-weight:400; }
+.er-toc-toggle:focus-visible,.er-toc-link:focus-visible { outline:2px solid var(--er-accent); outline-offset:1px; }
+
+/* Virtual folders share the shelf with books, without moving vault files. */
+.er-lib-actions { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.er-lib-action { height:38px; min-width:38px; border:1px solid var(--er-lib-border); border-radius:10px; background:var(--er-lib-card); color:var(--er-lib-text); box-shadow:none; }
+.er-lib-folder-nav { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding:12px 30px; border-bottom:1px solid var(--er-lib-border); }
+.er-lib-breadcrumbs { flex:1; display:flex; flex-wrap:wrap; align-items:center; gap:5px; min-width:100px; }
+.er-lib-breadcrumbs button { color:var(--er-lib-text); background:transparent; border:0; box-shadow:none; height:auto; white-space:normal; overflow-wrap:anywhere; }
+.er-lib-crumb-separator { color:var(--er-lib-muted); }
+.er-lib-all,.er-lib-status { color:var(--er-lib-text); background:var(--er-lib-card); border-color:var(--er-lib-border); }
+.er-lib-all.active { color:var(--er-lib-accent); border-color:var(--er-lib-accent); }
+.er-lib-folder-card { position:relative; border:1px solid var(--er-lib-border); border-radius:16px; background:linear-gradient(145deg,color-mix(in srgb,var(--er-lib-accent) 12%,var(--er-lib-card)),var(--er-lib-card)); align-self:start; overflow:hidden; }
+.er-lib-folder-open { display:flex; flex-direction:column; align-items:center; width:100%; height:auto; min-height:260px; border:0; box-shadow:none; background:transparent; color:var(--er-lib-text); padding:24px 16px; gap:12px; white-space:normal; }
+.er-lib-folder-icon { display:grid; place-items:center; width:100%; aspect-ratio:1.3; font-size:64px; }
+.er-lib-folder-name { font-size:15px; font-weight:650; overflow-wrap:anywhere; text-align:center; }
+.er-lib-folder-count { color:var(--er-lib-muted); font-size:12px; }
+.er-lib-folder-more { position:absolute; right:8px; top:8px; font-size:20px; background:var(--er-lib-card); border:1px solid var(--er-lib-border); color:var(--er-lib-text); box-shadow:none; }
+.er-lib-folder-drop { outline:3px solid var(--er-lib-accent); outline-offset:-3px; }
+.er-folder-name-input { display:block; width:100%; margin:12px 0; }
+@media(max-width:600px) {
+  .er-lib-folder-nav { padding:10px 12px; }
+  .er-lib-actions { margin-left:auto; }
+  .er-lib-folder-open { min-height:210px; padding:18px 12px; }
+  .er-lib-folder-icon { font-size:48px; }
+  .er-toc-tools { flex-wrap:wrap; }
+}
+
+/* Reading settings: full-width groups and manageable restore points. */
+.er-rs-modal { width:min(620px,94vw); max-width:620px; }
+.er-rs-grid { grid-template-columns:minmax(0,1fr); gap:18px; }
+.er-rs-col { width:100%; padding:16px; box-sizing:border-box; border:1px solid var(--background-modifier-border); border-radius:14px; background:var(--background-secondary); }
+.er-rs-h { margin:0 0 12px; font-size:13px; letter-spacing:.04em; }
+.er-rs .er-pan-sec { padding:0; margin:18px 0 8px; font-size:13px; font-weight:600; color:var(--text-normal); }
+.er-rs .er-col-row { padding:0; width:100%; box-sizing:border-box; }
+.er-rs .er-col-btn { box-shadow:none; font-family:inherit; }
+.er-rs .er-col-btn.active { background:color-mix(in srgb,var(--interactive-accent) 10%,var(--background-primary)); }
+.er-rs .er-pan-hint { padding:0; font-size:12px; line-height:1.5; }
+.er-rs .er-hist-row,.er-hist-row { display:flex; flex-direction:column; flex-wrap:nowrap; gap:12px; }
+.er-rs .er-hist-row { padding:0; }
+.er-history-current { display:flex; align-items:center; gap:14px; padding:14px; border:1px solid var(--interactive-accent,var(--er-accent)); border-radius:12px; background:color-mix(in srgb,var(--interactive-accent,var(--er-accent)) 7%,transparent); }
+.er-history-percent { flex:none; min-width:42px; font-size:18px; font-weight:650; color:var(--text-accent,var(--er-accent)); font-variant-numeric:tabular-nums; }
+.er-history-body { flex:1; min-width:0; text-align:left; }
+.er-history-title { font-size:13px; font-weight:600; line-height:1.5; color:var(--text-normal,var(--er-text)); }
+.er-history-detail { font-size:12px; line-height:1.5; color:var(--text-muted,var(--er-muted)); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.er-history-kind { font-size:10px; color:var(--text-muted,var(--er-muted)); }
+.er-history-toolbar { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; font-size:12px; color:var(--text-muted,var(--er-muted)); }
+.er-history-clear { height:auto; padding:6px 10px; font-size:12px; box-shadow:none; }
+.er-history-list { display:flex; flex-direction:column; gap:6px; max-height:400px; overflow-y:auto; overscroll-behavior:contain; }
+.er-history-point { display:flex; align-items:center; gap:6px; border-bottom:1px solid var(--background-modifier-border,var(--er-border)); padding:4px 0; }
+.er-history-jump { display:flex; align-items:center; gap:14px; flex:1; min-width:0; height:auto; white-space:normal; padding:10px; background:transparent; border:0; box-shadow:none; }
+.er-history-jump:hover { background:var(--background-modifier-hover); }
+.er-history-remove { flex:none; display:flex; align-items:center; justify-content:center; width:34px; height:34px; padding:7px; color:var(--text-muted,var(--er-muted)); background:transparent; border:0; box-shadow:none; }
+.er-history-remove svg { width:17px; height:17px; }
+.er-history-remove:hover { color:var(--text-error); }
+.er-lib-action svg { width:22px; height:22px; display:block; }
+.er-lib-action:has(svg) { display:flex; align-items:center; justify-content:center; padding:8px; }
+/* Reserve badge height so lazy page measurement cannot move the TOC rows. */
+.er-toc-tree .er-toc-where { min-height:1.4em; line-height:1.4; }
+.er-panel:has(.er-toc-tree) { overflow-anchor:none; scrollbar-gutter:stable; scroll-behavior:auto; }
+@media(max-width:520px) { .er-rs-col { padding:12px; } .er-rs-modal { width:100vw; max-width:100vw; } }
+
+/* Folders share the book cover and caption dimensions. Hover never moves the
+   pointer target or changes the gallery's scroll extent. */
+.er-lib-grid { align-items:start; scrollbar-gutter:stable; }
+.er-lib-card { min-width:0; box-sizing:border-box; }
+.er-lib-card:hover,.er-lib-card:active { transform:none; }
+.er-lib-folder-card { border-radius:14px; background:var(--er-lib-card); }
+.er-lib-folder-open,.er-lib-folder-open:hover,.er-lib-folder-open:active {
+  display:block; width:100%; height:auto; min-height:0; padding:0; gap:0;
+  box-sizing:border-box; border:0; border-radius:13px; background:transparent;
+  color:var(--er-lib-text); box-shadow:none; text-align:left; font-family:inherit;
+}
+.er-lib-folder-cover { display:grid; place-items:center; background:linear-gradient(145deg,color-mix(in srgb,var(--er-lib-accent) 12%,var(--er-lib-card)),var(--er-lib-card)); }
+.er-lib-folder-icon { width:auto; aspect-ratio:auto; font-size:64px; line-height:1; }
+.er-lib-book-title { height:2.72em; min-height:2.72em; }
+.er-lib-folder-name { font-size:13.5px; font-weight:650; line-height:1.36; text-align:left; }
+.er-lib-folder-count { font-size:10.5px; }
+.er-lib-book-meta { line-height:1.4; min-height:1.4em; }
+@keyframes er-card-in { from { opacity:0; } to { opacity:1; } }

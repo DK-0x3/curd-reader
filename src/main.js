@@ -1,5 +1,5 @@
 /*
- * Book Reader for Obsidian — plugin source.
+ * Curd Reader for Obsidian — plugin source.
  *
  * Read EPUB, FB2 and PDF books inside Obsidian, highlight passages and turn them
  * into notes. Everything below is the plugin's own code; the libraries it uses
@@ -9,9 +9,14 @@
 import { AbstractInputSuggest, FuzzySuggestModal, ItemView, MarkdownRenderer, Menu, Modal, Notice, Platform, Plugin, PluginSettingTab, Scope, Setting, TFile, TFolder, getLanguage, normalizePath, requestUrl } from "obsidian";
 import * as pdfjsLib from "pdfjs-dist";
 import ePub from "epubjs";
+import { embeddedPdfResources } from "./pdf-resources.js";
+import { bookNodeHtml } from "./book-html.js";
+import { emptyLibrary, folderTrail, validateLibrary, addLibraryFolder, moveLibraryFolder, renameLibraryFolder, removeLibraryFolder, placeLibraryBook, migrateLibraryTags, mergeLibraries } from "./library-model.js";
+import { mountTocTree } from "./toc-tree.js";
+import { readerBlocks, blockOwner, anchorFor, resolveAnchor, archivePath, epubAddress, bounded, checkAbort, validateRecord, mergeProgress, activateButton } from "./reader-core.js";
 
 // ---- i18n (RU default / EN) ----
-const __erEN = {"Пожелания и ошибки — в телеграм-бота":"Feedback and bugs — in the Telegram bot","Всё, что хочется поменять или починить, теперь собирается в одном месте — в телеграм-боте @book_in_obsidian_bot.":"Everything you would like changed or fixed is now collected in one place — the Telegram bot @book_in_obsidian_bot.","Ни аккаунта на GitHub, ни формы не нужно: заметили ошибку, не хватает возможности, неудобно на телефоне — просто отправьте боту обычное сообщение.":"No GitHub account and no form needed: found a bug, missing a feature, something awkward on the phone — just send the bot an ordinary message.","Читаю всё подряд; из этих сообщений и складывается список того, что делать дальше.":"I read every one of them, and that is what the plan for the next versions is made of.","Пожелания и ошибки":"Feedback and bugs","Всё, что хочется поменять или починить, собирается в телеграм-боте @book_in_obsidian_bot. Напишите ему обычным сообщением — ни аккаунта на GitHub, ни формы не нужно.":"Everything you would like changed or fixed is collected in the Telegram bot @book_in_obsidian_bot. Send it an ordinary message — no GitHub account and no form needed.","Написать в бота":"Message the bot","Обратная связь: ":"Feedback: "," — версия {0}. Автор: Elton.":" — version {0}. Author: Elton.","Пожелания и ошибки теперь собираются в телеграм-боте @book_in_obsidian_bot — просто напишите ему сообщение":"Feedback and bugs are now collected in the Telegram bot @book_in_obsidian_bot — just send it a message","Разбор фрагмента стал диалогом: свой вопрос, свой системный промпт, название книги уходит фоном":"Explaining a passage is a conversation now: your own question, your own system prompt, and the book's title is sent as background context","Читалка подстраивается под устройство: у телефона, планшета и компьютера своя раскладка":"The reader adapts to the device: phone, tablet and desktop each get their own layout","Тема читалки и библиотеки меняется мгновенно, появилась подстройка под тему Obsidian":"Reader and library themes switch instantly, and can follow your Obsidian theme","Движок PDF обновлён — открытие книг стало надёжнее":"The PDF engine has been updated — opening books is more reliable","стр. {0}":"p. {0}","разв. {0}":"spr. {0}","Введите хотя бы два символа":"Type at least two characters","Что найти в книге…":"What to find in the book…","Фильтр по названию…":"Filter by title…","В этой книге не нашлось ни оглавления, ни заголовков.":"No contents and no headings were found in this book.","Каким цветом подсветить фрагмент, если вы написали к нему комментарий, не выбрав цвет вручную. Комментарий может храниться только при выделении, поэтому оно создаётся само.":"Which colour to use when you comment on a passage without picking a colour first. A comment can only be stored on a highlight, so one is created for you.","Цвет выделения по умолчанию":"Default highlight colour","Не удалось сохранить комментарий":"Could not save the comment","Найдено: {0}. Слово подсвечено в тексте.":"Found: {0}. The word is highlighted in the text.","Снять подсветку":"Clear highlight","Эта страница слишком тяжёлая, чтобы нарисовать её":"This page is too heavy to draw","Найденное слово подсвечивается прямо в тексте, чтобы не искать его глазами в абзаце":"The matched word is painted right in the text, so you don't have to hunt for it in the paragraph","Найденное слово подсвечивается жёлтым прямо в тексте книги, поэтому искать его глазами в абзаце не нужно. Через несколько секунд подсветка гаснет сама, чтобы не мешать чтению; убрать сразу — «Снять подсветку» в панели поиска.":"The matched word is painted yellow right in the book's text — and stays painted after you close the panel, so you don't have to hunt for it in the paragraph. Turn it off with \"Clear highlight\" in the search panel.","Поиск по всему тексту книги — список совпадений с фрагментом вокруг каждого, клик переходит к месту.":"Search across the whole book's text — a list of matches with context around each, click to jump to that spot.","Поиск":"Search","Экспорт цитат группирует их по главам и подписывает номер страницы":"Quote export now groups by chapter and labels the page number","Оглавление наконец работает — брало данные, но не показывало их; починил, добавил номер страницы, живой номер разворота и фильтр для длинных списков":"Contents finally works — it had the data but never showed it; fixed, plus page numbers, a live spread number and a filter for long lists","Комментарий к выделению — короткая мысль остаётся при цитате, а не улетает в отдельный файл":"Comment on a highlight — a short thought stays with the quote instead of flying into a separate file","Поиск по всей книге — значок лупы вверху читалки, со списком совпадений и переходом к месту":"Search the whole book — magnifier icon at the top, with a match list and jump-to-spot","Если пунктов много (в технических книгах бывает 300–400), сверху появляется поле фильтра — начните печатать название главы.":"When there are many entries (technical books can have 300–400), a filter field appears at the top — start typing a chapter name.","У каждого пункта — номер страницы книги и номер текущего разворота, который пересчитывается на лету: он меняется при изменении ширины окна или открытии боковых панелей, поэтому его нельзя один раз сохранить.":"Each entry shows the book's own page number and the current spread number, recomputed live — it changes with window width or a sidebar opening, so it can't be stored once and reused.","Плагин ищет оглавление в таком порядке: сначала настоящие закладки из PDF, потом заголовки в тексте, потом печатное содержание книги (та страница со списком глав и точками), и в последнюю очередь — жирные абзацы, если больше зацепиться не за что.":"The plugin looks for a contents source in this order: real PDF bookmarks first, then headings in the text, then the book's own printed contents page (the one with the dotted leaders), and as a last resort, bold paragraphs if nothing else is there to go on.","Оглавление: откуда оно берётся":"Contents: where it comes from","Ищет по части слова: запрос «систем» найдёт и «система», и «системы», и «системный».":"Matches partial words: searching \"system\" finds \"system\", \"systems\" and \"systemic\".","Клик по результату — переход прямо к этому месту, на любом устройстве и при любой ширине окна.":"Click a result to jump straight to that spot, on any device and at any window width.","Значок лупы вверху читалки (или команда «Поиск по книге») открывает поиск по всему тексту — со списком совпадений и фрагментом текста вокруг каждого.":"The magnifier icon at the top of the reader (or the \"Search the book\" command) opens full-text search, with a list of matches and surrounding context for each.","Поиск по книге":"Search the book","Сохраняется по кнопке или Ctrl+Enter. Если очистить поле — комментарий удаляется, сама цитата остаётся.":"Saved with the button or Ctrl+Enter. Clearing the field removes the comment; the quote itself stays.","Пример: подчеркнули спорный тезис и приписали «а вот тут он сам себе противоречит» — эта строка видна в панели «Выделения» под цитатой и попадает в заметку книги при экспорте.":"Example: you highlight a shaky claim and jot \"he contradicts himself right here\" — it shows under the quote in the Highlights panel and travels with it on export.","У выделенного текста, кроме «Создать заметку», есть значок комментария — короткая мысль, которая остаётся ПРИ выделении, а не улетает в отдельный файл.":"Highlighted text has a comment icon besides \"Create a note\" — a short thought that stays WITH the highlight instead of flying off into a separate file.","Комментарий к выделению":"Comment on a highlight","В заметке цитаты собраны по главам, у каждой — номер страницы книги, а комментарий (если вы его оставили) идёт прямо под цитатой.":"In the note, quotes are grouped by chapter, each carries the book's page number, and your comment (if you left one) sits right under the quote.","Инструкция выросла до 21 экрана — теперь разбирает каждую настройку с примерами":"The guide has grown — it now walks through every setting with examples","Режим для e-ink читалок: без анимаций и теней, чистый чёрный на белом, крупнее кнопки":"E-ink reader mode: no animations or shadows, pure black on white, bigger buttons","Выделения переносятся выборочно: галочки, «выделить все», «только новые» — уже перенесённое не задваивается":"Highlights are exported selectively: tick boxes, \"select all\", \"new only\" — nothing already copied gets duplicated","Заметку из выделения можно сразу положить в нужную папку и проставить теги":"A note made from a highlight can go straight into the folder you want, with tags","Картинки из книг теперь показываются сразу — раньше их приходилось искать в другой читалке":"Pictures now show up straight away — previously you had to open another reader to find them","Картинки в книгах":"Pictures in books","Заметка из выделения: название, папка, теги":"A note from a highlight: title, folder, tags","Папка и теги запомнятся для следующей заметки. Сам фрагмент попадёт в текст целиком — название на это не влияет.":"The folder and tags are remembered for the next note. The passage itself goes into the note in full — the title does not affect that.","Например: идеи, психология":"For example: ideas, psychology","Теги":"Tags","Название":"Title","Новая заметка из выделения":"New note from a highlight","Для Obsidian на Android-читалке с электронными чернилами. Убирает анимации, плавные переходы, тени и размытие — они оставляют на таком экране следы. Чистый чёрный на белом, жёсткие рамки, крупнее кнопки, листание без скольжения.":"For Obsidian on an Android e-ink reader. Removes animations, fades, shadows and blur — they leave ghosting on such a screen. Pure black on white, hard borders, bigger buttons, page turns that jump instead of sliding.","Режим для e-ink читалок":"E-ink reader mode","Перенести выделения в заметки":"Move highlights into notes","Инструкция по плагину":"Plugin guide","Инструкция: разбор всех настроек по шагам":"Guide: every setting, step by step","Команды и горячие клавиши":"Commands and hotkeys","Как перенести выделения в заметки":"Moving highlights into notes","Вкладка «Данные»: где что лежит":"The Data tab: where things live","Вкладка «Перевод»":"The Translate tab","Заметка книги и шаблон":"The book note and the template","Куда складывать заметки":"Where notes are filed","Вкладка «Заметки»: название заметки":"The Notes tab: note titles","«Погружение» и цель чтения":"Immersive mode and the reading goal","«Выравнивание» и «Положение текста»":"Alignment and text position","Настройка «Листание страниц»":"The \"Turning pages\" setting","Вкладка «Чтение»: статистика":"The Reading tab: statistics","Дальше — разбор настроек":"Next: a tour of the settings","Что перенести в заметку":"What to copy into the note","Заметка «{0}» — {1} уже перенесено, отмечено {2} новых":"Note \"{0}\" — {1} already there, {2} new ones ticked","Заметка «{0}» — все {1} ещё не перенесены":"Note \"{0}\" — none of the {1} are there yet","Заметка книги не привязана — доступны только отдельные заметки":"No book note linked — separate notes only","Выделить все":"Select all","Снять все":"Clear all","Только новые":"New only","уже в заметке":"already in the note","Отмечено: {0} из {1}":"Ticked: {0} of {1}","В заметку книги":"Into the book note","Отдельными заметками":"As separate notes","Эта цитата уже есть в «{0}»":"That quote is already in \"{0}\"","Все выбранные цитаты уже есть в «{0}»":"All the selected quotes are already in \"{0}\"","Добавлено в «{0}»: {1}, пропущено уже имевшихся: {2}":"Added to \"{0}\": {1}; skipped as already present: {2}","Название подбирается автоматически: первое предложение фрагмента или его начало по границе слова. Выключено — в имя файла идёт весь фрагмент, как раньше.":"The title is chosen automatically: the passage's first sentence, or its opening cut on a word boundary. Off — the whole passage goes into the filename, as before.","Короткие названия без вопросов":"Short titles, no questions","Перед созданием заметки из выделения появится окно с коротким названием — его можно исправить или одной кнопкой вставить фрагмент целиком. Без этого имя файла берётся из самого фрагмента и выходит очень длинным.":"Before a note is created from a highlight, a dialog offers a short title you can edit, or insert the whole passage with one click. Without it the filename is taken from the passage itself and comes out very long.","Спрашивать название заметки":"Ask for the note title","Отмена":"Cancel","Сам фрагмент попадёт в текст заметки целиком — название на это не влияет.":"The passage itself goes into the note in full — the title does not affect that.","Взять весь фрагмент как название":"Use the whole passage as the title","Какую книгу открыть?":"Which book do you want to open?","Книга не найдена: {0}":"Book not found: {0}","Открыть книгу: {0}":"Open book: {0}","Открыть книгу…":"Open a book…","Продолжить чтение (последняя книга)":"Continue reading (last book)","Перестроение при сворачивании панелей стало плавным, а не рывком":"Re-layout when sidebars open or close now fades instead of jumping","Строки заполняют страницу до конца — больше нет пустых мест внизу колонки":"Lines fill the page to the bottom — no more blank gaps at the foot of a column","Листание строго вправо, без съезжания в угол, и текст стал чётким":"Page turns go straight sideways instead of drifting into the corner, and text is sharp","Статистика чтения: сколько всего прочитано, серия дней и график за две недели":"Reading stats: all-time total, day streak and a two-week chart","Книгу можно открыть командой — своя команда и горячая клавиша на каждую книгу":"Open a book by command — each book gets its own command and hotkey","Сколько минут в день вы хотите читать. Прогресс за сегодня — в карточке вверху этой вкладки.":"How many minutes a day you want to read. Today's progress is in the card at the top of this tab.","Откройте книгу и включите таймер ▶ — здесь появится история чтения.":"Open a book and start the timer ▶ — your reading history will appear here.","14 дней назад":"14 days ago","лучший день":"best day","в среднем за день":"daily average","дней с книгой":"days with a book","сегодня":"today","{0} дн. подряд":"{0}-day streak","за всё время с книгами":"all-time with books","{0} д":"{0} d","{0} д {1} ч":"{0} d {1} h","{0} ч":"{0} h","меньше минуты":"less than a minute","Положение на странице":"Position on the page","Положение текста на странице":"Text position on the page","Сверху":"Top","Снизу":"Bottom","Куда прижимать текст, если страница заполнена не до конца — например, в конце главы.":"Where to place the text when a page isn't filled — at the end of a chapter, for instance.","Если страница заполнена не до конца (например, в конце главы), текст можно не оставлять прижатым к верху. Меняется и на лету — в панели настроек чтения.":"When a page isn't filled (at the end of a chapter, for instance), the text needn't stay pinned to the top. Can also be changed on the fly from the reading-settings panel.","Чтение":"Reading","Заметки":"Notes","Данные":"Data","О плагине":"About","Очистка":"Cleanup","Шаблон":"Template","Цель чтения":"Reading goal","Что нового":"What's new","Показать":"Show","Список изменений последних версий.":"Changes from recent versions.","<b>Book Reader</b> — версия {0}. Автор: Elton Labs.":"<b>Book Reader</b> — version {0}. By Elton Labs.","Шрифт, размер и межстрочный интервал настраиваются прямо в книге — иконка ползунков вверху читалки.":"Font, size and line spacing are set inside the book — the sliders icon at the top of the reader.","Доп. настройки":"More settings","Память о книгах":"What the reader remembers","Забыть все книги":"Forget all books","Точно забыть?":"Really forget?","Готово — читалка снова спросит про заметку при открытии книги":"Done — the reader will ask about a note again when you open a book","Забыть настройки этой книги":"Forget this book's settings","Настройки книги сброшены — окно появится при следующем открытии":"Book settings cleared — the setup screen will appear next time you open it","Книг: {0}. Привязанные заметки, категории, шаблоны отдельных книг и отметки «про заметку уже спрашивали». Сами заметки НЕ удаляются — читалка просто забывает связи и спросит про заметку заново при открытии каждой книги.":"Books: {0}. Linked notes, categories, per-book templates and the \"already asked about a note\" marks. The notes themselves are NOT deleted — the reader just forgets the links and will ask about a note again when you open each book.","Заметка книги для ссылок":"Book note for links","Шаблон для этой книги":"Template for this book","Book Reader обновлён до {0}":"Book Reader updated to {0}","Понятно":"Got it","Открыть инструкцию":"Open the guide","Расширенные":"Advanced","Категория":"Category","Например: Психология, Бизнес":"e.g. Psychology, Business","Жанр или тема — по ней книги группируются в библиотеке. Несколько — через запятую. Можно оставить пустым.":"Genre or topic — books are grouped by it in the library. Separate several with commas. Can be left empty.","Жанр или тема — по ней книги группируются в библиотеке. Несколько — через запятую. Пусто — без категории.":"Genre or topic — books are grouped by it in the library. Separate several with commas. Empty means no category.","Цитаты и мысли из книги будут ссылаться на эту заметку.":"Quotes and thoughts from this book will link to this note.","Поиск заметки…":"Search notes…","Создать заметку…":"Create a note…","Создать заметку":"Create note","← Назад":"← Back","В хранилище пока нет заметок — создайте новую ниже":"No notes in the vault yet — create one below","Ничего не найдено":"Nothing found","Все":"All","Читаю":"Reading","Не начатые":"Not started","Прочитано":"Finished","Без папки":"No folder","Заметка для книги":"A note for this book","Куда собирать цитаты и мысли из этой книги? Выделенные фрагменты будут ссылаться на эту заметку.":"Where should quotes and thoughts from this book go? Highlights will link back to this note.","Создать заметку для книги":"Create a note for this book","Название заметки":"Note name","Папка":"Folder","Корень хранилища":"Vault root","Создать и начать читать":"Create and start reading","или":"or","Выбрать существующую заметку":"Pick an existing note","Читать без заметки":"Read without a note","В хранилище пока нет заметок — создайте новую":"There are no notes in the vault yet — create one","Больше не спрашивать — создавать заметку для каждой книги автоматически":"Don't ask again — create a note for every book automatically","Это всегда можно поменять потом — кнопка (i) вверху читалки или настройки плагина.":"You can change this later — the (i) button at the top of the reader, or the plugin settings.","+ Создать новую":"+ Create new","Заметка с этой страницы":"Note from this page","{0} — стр. {1}":"{0} — p. {1}","— из [[{0}]], стр. {1}":"— from [[{0}]], p. {1}","> *(страница-скан — текста для цитаты нет, впишите своими словами)*":"> *(scanned page — no text to quote, write it in your own words)*","Заметка создана: {0}":"Note created: {0}","Показывать картинки из книги":"Show pictures from the book","По умолчанию ВЫКЛ: если из страницы извлекается текст — показывается только чистый текст. Включите, чтобы над текстом показывались иллюстрации, схемы и графики: вырезаются сами картинки, а не скриншот всей страницы. На сканах (где текст извлечь нельзя) страница по-прежнему показывается целиком. Откройте книгу заново, чтобы применить.":"Off by default: when a page yields text, only the clean text is shown. Turn this on to also show the book's illustrations, diagrams and charts above the text — the pictures themselves are cropped out, not a screenshot of the whole page. Scanned pages (where no text can be extracted) are still shown in full. Reopen the book to apply.","Перевод":"Translation","Перевод выделенного":"Translating a selection","Оригинал":"Original","Переводим…":"Translating…","Перевести":"Translate","Копировать перевод":"Copy translation","В заметку":"To a note","Пустой ответ переводчика":"The translator returned nothing","Не удалось перевести. Нужен интернет — перевод идёт через Google Translate, и у него есть лимиты на частые запросы.":"Could not translate. An internet connection is required — translation goes through Google Translate, which rate-limits frequent requests.","Кнопка перевода в выделении":"Translate button in the selection popup","Добавляет кнопку перевода в панельку, которая появляется при выделении текста. Перевод открывается рядом с оригиналом, его можно скопировать или сохранить в заметку под цитатой. Откройте книгу заново, чтобы кнопка появилась.":"Adds a translate button to the popup that appears when you select text. The translation is shown next to the original; you can copy it or save it into a note under the quote. Reopen the book for the button to appear.","Это первая версия функции. Перевод идёт через бесплатный Google Translate: нужен интернет, есть лимиты на частые запросы, а выделенный фрагмент уходит на серверы Google. Для больших объёмов пока не рассчитано.":"This is an early version of the feature. Translation uses the free Google Translate: it needs internet, is rate-limited, and the selected fragment is sent to Google's servers. Not intended for large volumes yet.","Переводить на язык":"Translate into","Язык, на который переводить выделенный фрагмент. Исходный язык определяется автоматически.":"The language to translate the selected fragment into. The source language is detected automatically.","Русский":"Russian","Перевод — это отдельный сетевой запрос к Google. Если вам важно, чтобы текст книги никуда не уходил, оставьте функцию выключенной: всё остальное в читалке работает полностью офлайн.":"Translation is a separate network request to Google. If you need the book's text to stay on your device, leave this off: everything else in the reader works fully offline.","\n\n**Перевод:**\n{0}":"\n\n**Translation:**\n{0}","Читалка открывает три формата: EPUB (.epub), FB2 (.fb2) и PDF (.pdf).":"The reader opens three formats: EPUB (.epub), FB2 (.fb2) and PDF (.pdf).","1. Кладёте файл книги (.epub, .fb2 или .pdf) в хранилище и открываете его кликом.":"1. Put the book file (.epub, .fb2 or .pdf) in your vault and open it with a click.","Этот FB2 упакован в ZIP. Распакуйте архив и положите в хранилище сам файл .fb2.":"This FB2 is packed in a ZIP. Unpack the archive and put the .fb2 file itself into your vault.","Выравнивание текста":"Text alignment","Слева":"Left","По ширине":"Justify","По центру":"Center","Справа":"Right","{0} ч {1} мин":"{0} h {1} min","{0} мин":"{0} min","Своя заметка на каждую книгу":"A separate note per book","При первом открытии книги автоматически создаётся отдельная заметка с названием книги (в «Папке заметок-книг», иначе в «Папке для новых заметок») и привязывается к ней. Дальше все выделения из этой книги идут в её заметку. Выключено по умолчанию.":"On a book's first open, a dedicated note titled after the book is created (in the \"Book notes folder\", otherwise the \"New notes folder\") and linked to it. From then on every highlight from this book goes into its note. Off by default.","Заметка книги создана: {0}":"Book note created: {0}","Это первая версия функции — проверьте результат на паре книг. Заметка создаётся один раз при первом открытии книги.":"This is an early version of the feature — check the result on a couple of books first. The note is created once, on a book's first open.","Как выравнивается текст в колонке чтения. Можно менять и на лету — в панели настроек чтения (иконка ползунков) в самой книге. Откройте книгу заново, чтобы применить.":"How text is aligned in the reading column. You can also change it on the fly from the reading-settings panel (sliders icon) inside a book. Reopen the book to apply.","Сегодня прочитано: {0} мин. Всего за всё время: {1}. Кнопка ▶ вверху запускает обратный отсчёт до цели (пауза — ⏸).":"Read today: {0} min. All-time total: {1}. The ▶ button at the top starts the countdown toward the goal (pause — ⏸).","Сегодня прочитано: {0} мин. Всего за всё время: {1} мин.":"Read today: {0} min. All-time total: {1} min.","Жёлтый":"Yellow","Зелёный":"Green","Голубой":"Blue","Розовый":"Pink","Цель чтения на сегодня достигнута 🎉":"Today's reading goal reached 🎉","Таймер выключен — включите его в настройках чтения":"Timer is off — enable it in reading settings","Таймер сброшен":"Timer reset","Листание":"Page turning","Кнопками":"Buttons","По клику":"By click","«По клику»: клик по левой части страницы — назад, по правой — вперёд. Центр свободен для выделения текста.":"\"By click\": clicking the left part of the page goes back, the right part goes forward. The center stays free for selecting text.","Вкл":"On","Выкл":"Off","Тап по картинке — увеличить · фон или ✕ — закрыть":"Tap the image to zoom · background or ✕ to close","Elton Reader: используем pdf.worker.js из CDN (нужен интернет). Причина:":"Elton Reader: using pdf.worker.js from the CDN (internet required). Reason:","Elton Reader: could not register .pdf, use right-click → Открыть в Elton Reader":"Elton Reader: could not register .pdf, use right-click → Open in Elton Reader","Book Reader — Библиотека":"Book Reader — Library","Открыть библиотеку":"Open library","Открыть PDF в Book Reader":"Open PDF in Book Reader","Сохранить позицию чтения":"Save reading position","Экспортировать выделения в заметки":"Export highlights to notes","📖 Открыть в Book Reader":"📖 Open in Book Reader","Показать приветствие (онбординг)":"Show welcome (onboarding)","Заметка книги для ссылок — начните вводить название…":"Book note for links — start typing a name…","Шаблон заметки — начните вводить путь…":"Note template — start typing a path…","## Заметки из выделений":"## Notes from highlights","Заметка":"Note","Пустое выделение":"Empty highlight","Заметка создана":"Note created","Не удалось создать заметку":"Could not create the note","Нет выделений для экспорта":"No highlights to export","Книга":"Book","Не удалось экспортировать выделения":"Could not export highlights","Нет":"No","Да":"Yes","Для книги не привязана заметка — задайте её в настройках":"No note is linked to this book — set it in settings","## Цитаты":"## Quotes","Цитаты добавлены":"Quotes added","Да, открыть":"Yes, open","Не удалось добавить цитаты в заметку книги":"Could not add quotes to the book note","Как пользоваться Book Reader":"How to use Book Reader","Что делает каждая кнопка и зачем":"What each button does and why","Верхняя панель":"Top bar","Сохранить позицию":"Save position","Запоминает, где вы остановились, и ставит точку возврата (помечена 💾 в «Настройки → Вернуться к месту»). Это как «сохранение» в игре — нажмите перед закрытием книги, если хотите быть точно уверены, что место не потеряется.":"Remembers where you left off and drops a restore point (marked 💾 in \"Settings → Jump back\"). It's like a \"save\" in a game — press it before closing the book if you want to be completely sure your spot won't be lost.","Обновить":"Refresh","Перестраивает страницу заново, если вёрстка «поехала» — например, после смены размера окна или открытия/закрытия боковой панели или вкладки (текст может отобразиться криво). Текущую позицию при этом сохраняет.":"Rebuilds the page if the layout breaks — for example, after resizing the window or opening/closing a sidebar panel or tab (the text may look misaligned). Your current position is preserved.","Выделения":"Highlights","Открывает список всех ваших выделений в этой книге. Клик по строке — переход к этому месту. Сверху списка — кнопка экспорта в заметки.":"Opens the list of all your highlights in this book. Click a row to jump to that spot. Above the list is the export-to-notes button.","Содержание":"Contents","Оглавление книги — быстрый переход по главам.":"The book's table of contents — quickly jump between chapters.","Настройки":"Settings","Тема, шрифт, размер текста, число колонок и блок «Вернуться к месту» — список точек, к которым можно откатиться.":"Theme, font, text size, column count and the \"Jump back\" block — a list of points you can roll back to.","Справка":"Help","Это окно.":"This window.","Чтение и навигация":"Reading and navigation","Листать страницы":"Turn pages","Стрелки внизу экрана, клавиши ← → ↑ ↓ и пробел, либо свайп пальцем на телефоне. Каждое перелистывание автоматически сохраняет позицию — отдельно жать «Сохранить» не обязательно.":"The arrows at the bottom of the screen, the ← → ↑ ↓ keys and space, or a finger swipe on mobile. Every page turn saves your position automatically — you don't need to press \"Save\" separately.","Выделения и заметки":"Highlights and notes","Выделить текст":"Highlight text","Выделите фрагмент мышью или пальцем — всплывёт палитра цветов. Клик по уже готовому выделению — сменить цвет или удалить его.":"Select a fragment with the mouse or a finger — a color palette pops up. Click an existing highlight to change its color or remove it.","Создать заметку из выделения":"Create a note from a highlight","Правый клик по выделенному тексту → «Создать новую заметку». Заметка создаётся по вашему шаблону в выбранной папке, с цитатой и ссылкой на книгу.":"Right-click the highlighted text → \"Create new note\". The note is created from your template in the chosen folder, with the quote and a link to the book.","Экспортировать все выделения":"Export all highlights","Кнопка вверху панели «Выделения». Собирает все выделения книги разом. Спросит формат: одна общая заметка со всеми цитатами, отдельный файл на каждое выделение, либо вставить все цитаты текстом прямо в привязанную заметку книги.":"The button at the top of the \"Highlights\" panel. Collects all of the book's highlights at once. It asks for a format: one shared note with all quotes, a separate file per highlight, or inserting all quotes as text straight into the linked book note.","Куда вести ссылку «— из [[…]]» в заметках из выделений. Пусто — имя файла книги.":"Where the \"— from [[…]]\" link in highlight notes points. Empty — the book's file name.","Сначала откройте книгу…":"Open a book first…","Выбрать из списка…":"Choose from the list…","В хранилище нет заметок":"No notes in the vault","Свой шаблон только для этой книги (например, под жанр). Пусто — используется общий шаблон из настроек плагина.":"A template just for this book (for example, per genre). Empty — the shared template from the plugin settings is used.","Templates/Шаблон.md":"Templates/Template.md","Про автосохранение":"About autosave","Позиция сохраняется сама при каждом перелистывании и хранится в общем файле, который синхронизируется между устройствами (Obsidian Sync). Перестроение страницы (смена размера окна, панелей, масштаба) больше НЕ двигает и не пересохраняет прогресс — поэтому он не «уезжает» сам по себе.":"Your position is saved automatically on every page turn and kept in a shared file that syncs across devices (Obsidian Sync). Rebuilding the page (resizing the window, panels, zoom) no longer moves or re-saves progress — so it won't \"drift\" on its own.","Добро пожаловать в Book Reader!":"Welcome to Book Reader!","Это уютная читалка книг прямо внутри Obsidian. Читаете, выделяете важное и превращаете выделения в заметки — не выходя из хранилища.":"It's a cozy book reader right inside Obsidian. Read, highlight what matters and turn highlights into notes — without leaving your vault.","Пролистайте несколько экранов стрелкой → (или кнопкой «Далее»). Это займёт минуту, зато потом всё будет понятно.":"Flip through a few screens with the → arrow (or the \"Next\" button). It takes a minute, but then everything will be clear.","Какие форматы и как открыть книгу":"Which formats, and how to open a book","Читалка открывает два формата: EPUB (файлы .epub) и PDF (файлы .pdf).":"The reader opens two formats: EPUB (.epub files) and PDF (.pdf files).","Чтобы читать книгу, положите её файл в своё хранилище Obsidian и просто кликните по нему — она откроется в читалке.":"To read a book, put its file into your Obsidian vault and just click it — it opens in the reader.","На левой панели есть значок 📖 «Библиотека» — там все ваши книги с обложками в одном месте.":"In the left sidebar there's a 📖 \"Library\" icon — all your books with covers in one place.","Это самая первая версия":"This is the very first version","Пожалуйста, не загружайте сразу много книг. Начните с двух-трёх и проверьте, что всё работает стабильно именно на вашем устройстве.":"Please don't load a lot of books at once. Start with two or three and check that everything works reliably on your device.","Особенно аккуратно с очень большими PDF (сотни страниц или сканы картинок) — они тяжёлые и могут подтормаживать.":"Be especially careful with very large PDFs (hundreds of pages or scanned images) — they're heavy and may lag.","Плагин будет становиться лучше. А пока — по чуть-чуть и бережно 🙂":"The plugin will keep getting better. For now — little by little and gently 🙂","Выделения: цвета и действия":"Highlights: colors and actions","Выделите текст пальцем или мышью — появится палитра. Выберите цвет, и выделение сохранится.":"Select text with a finger or the mouse — a palette appears. Pick a color and the highlight is saved.","Нажмите на уже готовое выделение — откроется то же меню: сменить цвет, скопировать, поставить закладку «остановился здесь», создать заметку, отправить в заметку книги или удалить.":"Tap an existing highlight — the same menu opens: change color, copy, set a \"stopped here\" bookmark, create a note, send it to the book note, or delete.","Все выделения книги собраны в панели 🖍️ наверху — оттуда можно перейти к любому или экспортировать все сразу.":"All of the book's highlights are gathered in the 🖍️ panel at the top — from there you can jump to any of them or export them all at once.","Что такое «заметка книги»":"What a \"book note\" is","У каждой книги можно завести одну обычную заметку Obsidian — её «главную страницу», например «Мастер и Маргарита.md».":"For each book you can keep one ordinary Obsidian note — its \"home page\", for example \"The Master and Margarita.md\".","Когда вы создаёте заметку из выделения, в ней ставится ссылка на эту заметку книги. А ещё цитаты можно отправлять прямо в неё — так все мысли по книге собираются в одном месте.":"When you create a note from a highlight, it links back to this book note. You can also send quotes straight into it — so all your thoughts on the book gather in one place.","Это не обязательно настраивать прямо сейчас — привязать заметку книги можно в любой момент позже. Откройте книгу, нажмите значок ⓘ (справка) вверху читалки и заполните поле «Заметка книги для ссылок». Пока ничего не привязано, ссылки просто ведут на имя файла книги.":"You don't have to set this up right now — you can link a book note at any time later. Open the book, press the ⓘ (help) icon at the top of the reader and fill in the \"Book note for links\" field. Until something is linked, links simply point to the book's file name.","Где всё хранится":"Where everything is stored","Ваш прогресс чтения и выделения хранятся файлами прямо в хранилище (рядом с книгами или в отдельной папке — это настраивается). Ничего не спрятано «внутри плагина» — всё лежит у вас.":"Your reading progress and highlights are stored as files right in the vault (next to the books or in a separate folder — it's configurable). Nothing is hidden \"inside the plugin\" — it's all yours.","Заметки из выделений и заметки книги — это самые обычные .md заметки в вашей папке. Открывайте, редактируйте и связывайте их, как любые другие.":"Highlight notes and book notes are ordinary .md notes in your folder. Open, edit and link them like any others.","Про синхронизацию":"About syncing","Раз прогресс и выделения — это файлы в хранилище, они синхронизируются вместе с ним (Obsidian Sync, iCloud и т.п.).":"Since progress and highlights are files in the vault, they sync along with it (Obsidian Sync, iCloud, etc.).","Дайте синхронизации закончиться, прежде чем открывать ту же книгу на другом устройстве, и не читайте одну книгу на двух устройствах сразу — иначе позиция может «поспорить сама с собой».":"Let syncing finish before opening the same book on another device, and don't read one book on two devices at once — otherwise the position may \"argue with itself\".","На разных устройствах путь к папке с книгами бывает разным — проверьте папки в настройках плагина.":"The path to the books folder can differ across devices — check the folders in the plugin settings.","Пример: как это всё работает":"Example: how it all works","1. Кладёте файл книги (.epub или .pdf) в хранилище и открываете его кликом.":"1. Put a book file (.epub or .pdf) into the vault and open it with a click.","2. Читаете. Позиция сохраняется сама при каждом перелистывании — ничего нажимать не нужно.":"2. Read. Your position saves itself on every page turn — nothing to press.","3. Понравилась мысль — выделяете её и выбираете цвет. Выделение сохранилось.":"3. Like a thought — highlight it and pick a color. The highlight is saved.","4. (по желанию) Нажимаете ⓘ вверху и привязываете «заметку книги» — свою страницу для этой книги. Это можно сделать и потом.":"4. (optional) Press ⓘ at the top and link a \"book note\" — your page for this book. You can do this later too.","5. Нажимаете на выделение → «в заметку книги» — цитата улетает в эту страницу, и плагин предложит открыть её. Готово: все ваши цитаты в одном месте.":"5. Tap a highlight → \"to book note\" — the quote flies into that page, and the plugin offers to open it. Done: all your quotes in one place.","Готово — приятного чтения!":"All set — enjoy your reading!","Что настроить по желанию (не обязательно сразу): папку для книг и папку для заметок — в настройках плагина. Заметку книги — под значком ⓘ прямо во время чтения.":"What to set up if you like (not required right away): the books folder and the notes folder — in the plugin settings. The book note — under the ⓘ icon while reading.","Что можно вообще не трогать: прогресс и выделения работают сразу и сохраняются сами.":"What you can leave alone entirely: progress and highlights work right away and save themselves.","Полная справка по каждой кнопке — значок ⓘ в читалке. Этот экран приветствия можно снова открыть в настройках плагина.":"Full help for every button — the ⓘ icon in the reader. You can reopen this welcome screen in the plugin settings.","Нажмите «Начать читать» и откройте свою первую книгу 📖":"Press \"Start reading\" and open your first book 📖","‹ Назад":"‹ Back","Начать читать":"Start reading","Далее ›":"Next ›","Пропустить":"Skip","Загружаем книгу…":"Loading the book…","Ошибка при открытии файла":"Error opening the file","Сбросить таймер":"Reset timer","Таймер: сколько осталось до цели — старт/пауза":"Timer: time left to the goal — start/pause","Обновить (перерисовать вид)":"Refresh (redraw the view)","Оглавление":"Table of contents","Настройки чтения":"Reading settings","Создать новую заметку":"Create new note","Текстом в заметку книги":"As text into the book note","Нечего сохранять":"Nothing to save","Книга не открыта":"No book is open","Тема":"Theme","Тёмная":"Dark","Светлая":"Light","Сепия":"Sepia","Размер шрифта":"Font size","Шрифт":"Font","Межстрочный":"Line spacing","Страниц рядом":"Pages side by side","1 страница":"1 page","2 страницы":"2 pages","Вернуться к месту":"Jump back","Действия":"Actions","Точек пока нет":"No points yet","Недоступно":"Unavailable","Нечего обновлять":"Nothing to refresh","Обновлено":"Refreshed","Копировать текст":"Copy text","Скопировано ✓":"Copied ✓","Не удалось скопировать":"Could not copy","Остановился здесь":"Stopped here","Экспортировать в заметку книги":"Export to the book note","Выделение не найдено":"Highlight not found","Пока нет выделений.\nВыделите текст и выберите цвет.":"No highlights yet.\nSelect text and pick a color.","Удалить":"Delete","Закрыть":"Close","Библиотека":"Library","Поиск книги…":"Search a book…","Меньше обложки":"Smaller covers","Больше обложки":"Larger covers","Нет книг":"No books","Все папки vault":"All vault folders","книг":"books","книги":"books","книга":"book","Вид обложки":"Cover fit","Не читалась":"Not started","Ещё":"More","Перейти к странице":"Go to page","Перейти":"Go","Приветствие и инструкция":"Welcome and guide","Показать вводный экран с объяснением форматов, заметки книги, хранения данных и синхронизации.":"Show the intro screen explaining formats, the book note, data storage and syncing.","Открыть приветствие":"Open welcome","Папка с книгами":"Books folder","Пусто = весь vault":"Empty = the whole vault","Папка данных чтения":"Reading-data folder","Где хранятся прогресс чтения, выделения и резервные копии (reading-progress.json, reading-highlights.json). Пусто — рядом с книгами (в «Папке с книгами»). Файлы синхронизируются вместе с хранилищем.":"Where reading progress, highlights and rescue backups are kept (reading-progress.json, reading-highlights.json). Empty — next to the books (in the \"Books folder\"). The files sync along with the vault.","Рядом с книгами":"Next to the books","Заметки из выделений":"Notes from highlights","Шаблон заметки":"Note template","Путь к вашему шаблону (Templater), который применяется к новой заметке из выделения. Пусто — заметка создаётся без шаблона, только с цитатой. Пример: 0. Files/4. Templates/Шаблон стандартный.md":"Path to your (Templater) template applied to each new highlight note. Empty — the note is created without a template, with just the quote. Example: 0. Files/4. Templates/Default template.md","Папка для новых заметок":"Folder for new notes","Куда сохранять заметки, создаваемые из выделений. Пусто — корень хранилища.":"Where to save notes created from highlights. Empty — the vault root.","Папка заметок-книг (для ссылок)":"Book-notes folder (for links)","Из этой папки берётся список при выборе заметки книги, куда ведёт ссылка «— из [[…]]». Пусто — можно выбрать любую заметку хранилища.":"The list for choosing a book note (where the \"— from [[…]]\" link points) is taken from this folder. Empty — you can pick any note in the vault.","3. Resources/База книг":"3. Resources/Book base","Совет: шаблон можно переопределить для отдельной книги — откройте книгу, нажмите (i) вверху и укажите свой шаблон в поле «Шаблон для этой книги» (удобно, если у разных жанров разное оформление).":"Tip: the template can be overridden per book — open the book, press (i) at the top and set your template in the \"Template for this book\" field (handy if different genres need different formatting).","Сохранять цвет выделений при экспорте":"Keep highlight color on export","Каждая цитата оборачивается в цветной <mark> — цвет выделения виден в готовой заметке (в режиме чтения и live preview, без плагинов). Выключите, если хотите обычные цитаты без HTML.":"Each quote is wrapped in a colored <mark> — the highlight color shows in the finished note (in reading mode and live preview, no plugins needed). Turn it off if you want plain quotes without HTML.","Дублировать страницу картинкой, если есть текст":"Duplicate the page as an image when text exists","По умолчанию ВЫКЛ: если из страницы извлекается текст — показывается только чистый текст, без скриншота. Картинка показывается лишь когда текст извлечь нельзя (сканы, схемы, обложки). Включите, если хотите ВИДЕТЬ оригинальный рисунок страницы над текстом (например, для книг-скетчноутов). Откройте книгу заново, чтобы применить.":"OFF by default: if text can be extracted from the page, only the clean text is shown, without a screenshot. The image is shown only when text can't be extracted (scans, diagrams, covers). Turn it on if you want to SEE the original page image above the text (for example, for sketchnote books). Reopen the book to apply.","Листание страниц":"Page turning","«Кнопками» — стрелки/клавиши/свайп. «По клику» — клик по левой/правой части страницы листает назад/вперёд (центр свободен для выделения текста).":"\"Buttons\" — arrows/keys/swipe. \"By click\" — clicking the left/right part of the page turns back/forward (the center stays free for selecting text).","По клику мышкой":"By mouse click","Таймер цели чтения":"Reading-goal timer","Обратный отсчёт до дневной цели (например, 15 минут) — сколько ещё осталось прочитать. Запускается ВРУЧНУЮ кнопкой ▶ вверху читалки, рядом с «Сохранить» (пауза — ⏸).":"A countdown to your daily goal (for example, 15 minutes) — how much is left to read. Started MANUALLY with the ▶ button at the top of the reader, next to \"Save\" (pause — ⏸).","Цель на день, минут":"Daily goal, minutes","Погружение (Immersive)":"Immersive","Панели сверху и снизу мягко притухают через пару секунд без движения мыши и мгновенно возвращаются при движении — чтобы ничто не отвлекало от текста.":"The top and bottom bars gently dim after a couple of seconds without mouse movement and instantly return when you move — so nothing distracts from the text.","Кэш обложек":"Cover cache","Очистить":"Clear","Кэш очищен":"Cache cleared","Прогресс":"Progress","Прогресс очищен":"Progress cleared","Очистить все":"Clear all","Выделения очищены":"Highlights cleared","Синхронизация между устройствами":"Syncing across devices","Способ синхронизации":"Sync method","Подсказывает плагину, насколько свежо перечитывать файлы прогресса при открытии книги.":"Tells the plugin how eagerly to re-read the progress files when opening a book.","Авто (рекомендуется)":"Auto (recommended)","iCloud / Google Drive / папка":"iCloud / Google Drive / folder","Без синхронизации":"No syncing","Облачные папки (iCloud/Drive) обновляются с задержкой. Если на одном устройстве вы только читаете — конфликтов не будет: плагин перечитывает прогресс при каждом открытии книги и аккуратно сливает выделения.":"Cloud folders (iCloud/Drive) update with a delay. If you only read on one device there will be no conflicts: the plugin re-reads progress every time a book is opened and carefully merges highlights.","✓ Цель достигнута — {0} мин сегодня":"✓ Goal reached — {0} min today","⏱ {0} из {1} мин · {2}%":"⏱ {0} of {1} min · {2}%","{0} мин/день":"{0} min/day","Сегодня прочитано: {0} мин. Кнопка ▶ вверху запускает обратный отсчёт до цели (пауза — ⏸).":"Read today: {0} min. The ▶ button at the top starts the countdown to the goal (pause — ⏸).","\n\n— из [[{0}]]":"\n\n— from [[{0}]]","Выделения — {0}":"Highlights — {0}","---\ncreated: {0}\nsource: \"[[{1}]]\"\ntags: [выделения]\n---\n\n# {2}\n\n{3}\n\n— из [[{4}]]\n":"---\ncreated: {0}\nsource: \"[[{1}]]\"\ntags: [highlights]\n---\n\n# {2}\n\n{3}\n\n— from [[{4}]]\n","Экспортировано выделений: {0}":"Highlights exported: {0}","Создаю заметки: {0}…":"Creating notes: {0}…","Создано заметок: {0}, ошибок: {1}":"Notes created: {0}, errors: {1}","Создано заметок: {0}":"Notes created: {0}","Заметка книги не найдена: {0}":"Book note not found: {0}","Добавлено цитат в «{0}»: {1}":"Quotes added to \"{0}\": {1}","Открыть заметку «{0}» в отдельной вкладке?":"Open the note \"{0}\" in a separate tab?","Отдельная заметка на каждое ({0})":"A separate note for each ({0})","Текстом в заметку книги ({0})":"As text into the book note ({0})","Нет заметок в «{0}»":"No notes in \"{0}\"","Заметка книги: {0}":"Book note: {0}","Шаблон книги: {0}":"Book template: {0}","Экран {0}":"Screen {0}","Готовим книгу… {0}%":"Preparing the book… {0}%","Выделить: {0}":"Highlight: {0}","Сохранено ✓ — {0}%":"Saved ✓ — {0}%","Разворот {0} из {1}":"Spread {0} of {1}","Вернулись к {0}%":"Jumped back to {0}%","Закладка «остановился здесь» — {0}%":"\"Stopped here\" bookmark — {0}%","{0}<span>Экспортировать в заметки ({1})</span>":"{0}<span>Export to notes ({1})</span>","<p style=\"padding:40px;color:var(--er-muted);margin:auto;\">Ошибка: {0}</p>":"<p style=\"padding:40px;color:var(--er-muted);margin:auto;\">Error: {0}</p>","{0}<span>Справка</span>":"{0}<span>Help</span>","Сегодня прочитано: {0} мин.":"Read today: {0} min.","Сохранено: {0}":"Saved: {0}","Книг: {0}":"Books: {0}","Всего: {0}":"Total: {0}","Прогресс чтения и выделения хранятся <b>файлами прямо в хранилище</b>, рядом с книгами:":"Reading progress and highlights are stored <b>as files right in the vault</b>, next to the books:","Поэтому они переезжают между ПК и телефоном <b>любым</b> способом, которым вы синхронизируете само хранилище ":"So they travel between PC and phone by <b>any</b> means you use to sync the vault itself ","(Obsidian Sync, iCloud, Google Drive, Remotely Save и т.п.). Привязка к месту — по номеру абзаца, ":"(Obsidian Sync, iCloud, Google Drive, Remotely Save, etc.). The position is anchored by paragraph number, ","так что ПК и телефон находят одну и ту же точку при любом размере экрана.<br>":"so PC and phone find the same spot at any screen size.<br>","Настройки оформления и кэш обложек — локальные (в <code>data.json</code> плагина) и намеренно не синхронизируются.":"Appearance settings and the cover cache are local (in the plugin's <code>data.json</code>) and are intentionally not synced.","Добавить книгу":"Add a book","Отпустите файлы, чтобы добавить их в библиотеку":"Drop the files to add them to your library","Поддерживаются только файлы PDF, EPUB и FB2":"Only PDF, EPUB and FB2 files are supported","Файлы не выбраны":"No files selected","Добавлено книг: {0}":"Books added: {0}","пропущено: {0}":"skipped: {0}","Не удалось добавить: {0}":"Could not add: {0}","Абзацы в PDF сохраняются как в оригинале — текст больше не склеивается в сплошную стену":"PDF paragraphs are kept as in the original — the text no longer glues into one solid wall","Библиотека: кнопка «Добавить книгу» и перетаскивание файлов (PDF, EPUB, FB2) прямо в окно":"Library: an \"Add a book\" button and drag-and-drop of files (PDF, EPUB, FB2) straight into the window","PDF-движок встроен в плагин — книги открываются офлайн, ничего не подгружается из интернета":"The PDF engine is now bundled in — books open offline, nothing is fetched from the internet","В списке выделений комментарий больше не ломает цитату — он аккуратно встаёт под ней":"In the highlights list a comment no longer breaks the quote — it sits neatly underneath it"};
+const __erEN = {"Пожелания и ошибки — GitHub Issues":"Feedback and bugs — in the Telegram bot","Пожелания и сообщения об ошибках принимаются в GitHub Issues проекта Curd Reader.":"Everything you would like changed or fixed is now collected in one place — the Telegram bot GitHub Issues.","Для отправки сообщения нужен аккаунт GitHub. Опишите проблему, формат книги и версию Obsidian.":"No GitHub account and no form needed: found a bug, missing a feature, something awkward on the phone — just send the bot an ordinary message.","Обращения помогают выбрать следующие исправления и улучшения.":"I read every one of them, and that is what the plan for the next versions is made of.","Пожелания и ошибки":"Feedback and bugs","Ошибки и предложения принимаются в GitHub Issues проекта Curd Reader. Для отправки нужен аккаунт GitHub.":"Everything you would like changed or fixed is collected in the Telegram bot GitHub Issues. Send it an ordinary message — no GitHub account and no form needed.","Открыть GitHub Issues":"Message the bot","Обратная связь: ":"Feedback: "," — версия {0}. Автор: DK-0x3. Основано на Book Reader от Elton Labs.":" — version {0}. Author: DK-0x3. Based on Book Reader by Elton Labs.","Пожелания и ошибки принимаются в GitHub Issues проекта Curd Reader":"Feedback and bugs are now collected in the Telegram bot GitHub Issues — just send it a message","Разбор фрагмента стал диалогом: свой вопрос, свой системный промпт, название книги уходит фоном":"Explaining a passage is a conversation now: your own question, your own system prompt, and the book's title is sent as background context","Читалка подстраивается под устройство: у телефона, планшета и компьютера своя раскладка":"The reader adapts to the device: phone, tablet and desktop each get their own layout","Тема читалки и библиотеки меняется мгновенно, появилась подстройка под тему Obsidian":"Reader and library themes switch instantly, and can follow your Obsidian theme","Движок PDF обновлён — открытие книг стало надёжнее":"The PDF engine has been updated — opening books is more reliable","стр. {0}":"p. {0}","разв. {0}":"spr. {0}","Введите хотя бы два символа":"Type at least two characters","Что найти в книге…":"What to find in the book…","Фильтр по названию…":"Filter by title…","В этой книге не нашлось ни оглавления, ни заголовков.":"No contents and no headings were found in this book.","Каким цветом подсветить фрагмент, если вы написали к нему комментарий, не выбрав цвет вручную. Комментарий может храниться только при выделении, поэтому оно создаётся само.":"Which colour to use when you comment on a passage without picking a colour first. A comment can only be stored on a highlight, so one is created for you.","Цвет выделения по умолчанию":"Default highlight colour","Не удалось сохранить комментарий":"Could not save the comment","Найдено: {0}. Слово подсвечено в тексте.":"Found: {0}. The word is highlighted in the text.","Снять подсветку":"Clear highlight","Эта страница слишком тяжёлая, чтобы нарисовать её":"This page is too heavy to draw","Найденное слово подсвечивается прямо в тексте, чтобы не искать его глазами в абзаце":"The matched word is painted right in the text, so you don't have to hunt for it in the paragraph","Найденное слово подсвечивается жёлтым прямо в тексте книги, поэтому искать его глазами в абзаце не нужно. Через несколько секунд подсветка гаснет сама, чтобы не мешать чтению; убрать сразу — «Снять подсветку» в панели поиска.":"The matched word is painted yellow right in the book's text — and stays painted after you close the panel, so you don't have to hunt for it in the paragraph. Turn it off with \"Clear highlight\" in the search panel.","Поиск по всему тексту книги — список совпадений с фрагментом вокруг каждого, клик переходит к месту.":"Search across the whole book's text — a list of matches with context around each, click to jump to that spot.","Поиск":"Search","Экспорт цитат группирует их по главам и подписывает номер страницы":"Quote export now groups by chapter and labels the page number","Оглавление наконец работает — брало данные, но не показывало их; починил, добавил номер страницы, живой номер разворота и фильтр для длинных списков":"Contents finally works — it had the data but never showed it; fixed, plus page numbers, a live spread number and a filter for long lists","Комментарий к выделению — короткая мысль остаётся при цитате, а не улетает в отдельный файл":"Comment on a highlight — a short thought stays with the quote instead of flying into a separate file","Поиск по всей книге — значок лупы вверху читалки, со списком совпадений и переходом к месту":"Search the whole book — magnifier icon at the top, with a match list and jump-to-spot","Если пунктов много (в технических книгах бывает 300–400), сверху появляется поле фильтра — начните печатать название главы.":"When there are many entries (technical books can have 300–400), a filter field appears at the top — start typing a chapter name.","У каждого пункта — номер страницы книги и номер текущего разворота, который пересчитывается на лету: он меняется при изменении ширины окна или открытии боковых панелей, поэтому его нельзя один раз сохранить.":"Each entry shows the book's own page number and the current spread number, recomputed live — it changes with window width or a sidebar opening, so it can't be stored once and reused.","Плагин ищет оглавление в таком порядке: сначала настоящие закладки из PDF, потом заголовки в тексте, потом печатное содержание книги (та страница со списком глав и точками), и в последнюю очередь — жирные абзацы, если больше зацепиться не за что.":"The plugin looks for a contents source in this order: real PDF bookmarks first, then headings in the text, then the book's own printed contents page (the one with the dotted leaders), and as a last resort, bold paragraphs if nothing else is there to go on.","Оглавление: откуда оно берётся":"Contents: where it comes from","Ищет по части слова: запрос «систем» найдёт и «система», и «системы», и «системный».":"Matches partial words: searching \"system\" finds \"system\", \"systems\" and \"systemic\".","Клик по результату — переход прямо к этому месту, на любом устройстве и при любой ширине окна.":"Click a result to jump straight to that spot, on any device and at any window width.","Значок лупы вверху читалки (или команда «Поиск по книге») открывает поиск по всему тексту — со списком совпадений и фрагментом текста вокруг каждого.":"The magnifier icon at the top of the reader (or the \"Search the book\" command) opens full-text search, with a list of matches and surrounding context for each.","Поиск по книге":"Search the book","Сохраняется по кнопке или Ctrl+Enter. Если очистить поле — комментарий удаляется, сама цитата остаётся.":"Saved with the button or Ctrl+Enter. Clearing the field removes the comment; the quote itself stays.","Пример: подчеркнули спорный тезис и приписали «а вот тут он сам себе противоречит» — эта строка видна в панели «Выделения» под цитатой и попадает в заметку книги при экспорте.":"Example: you highlight a shaky claim and jot \"he contradicts himself right here\" — it shows under the quote in the Highlights panel and travels with it on export.","У выделенного текста, кроме «Создать заметку», есть значок комментария — короткая мысль, которая остаётся ПРИ выделении, а не улетает в отдельный файл.":"Highlighted text has a comment icon besides \"Create a note\" — a short thought that stays WITH the highlight instead of flying off into a separate file.","Комментарий к выделению":"Comment on a highlight","В заметке цитаты собраны по главам, у каждой — номер страницы книги, а комментарий (если вы его оставили) идёт прямо под цитатой.":"In the note, quotes are grouped by chapter, each carries the book's page number, and your comment (if you left one) sits right under the quote.","Инструкция выросла до 21 экрана — теперь разбирает каждую настройку с примерами":"The guide has grown — it now walks through every setting with examples","Режим для e-ink читалок: без анимаций и теней, чистый чёрный на белом, крупнее кнопки":"E-ink reader mode: no animations or shadows, pure black on white, bigger buttons","Выделения переносятся выборочно: галочки, «выделить все», «только новые» — уже перенесённое не задваивается":"Highlights are exported selectively: tick boxes, \"select all\", \"new only\" — nothing already copied gets duplicated","Заметку из выделения можно сразу положить в нужную папку и проставить теги":"A note made from a highlight can go straight into the folder you want, with tags","Картинки из книг теперь показываются сразу — раньше их приходилось искать в другой читалке":"Pictures now show up straight away — previously you had to open another reader to find them","Картинки в книгах":"Pictures in books","Заметка из выделения: название, папка, теги":"A note from a highlight: title, folder, tags","Папка и теги запомнятся для следующей заметки. Сам фрагмент попадёт в текст целиком — название на это не влияет.":"The folder and tags are remembered for the next note. The passage itself goes into the note in full — the title does not affect that.","Например: идеи, психология":"For example: ideas, psychology","Теги":"Tags","Название":"Title","Новая заметка из выделения":"New note from a highlight","Для Obsidian на Android-читалке с электронными чернилами. Убирает анимации, плавные переходы, тени и размытие — они оставляют на таком экране следы. Чистый чёрный на белом, жёсткие рамки, крупнее кнопки, листание без скольжения.":"For Obsidian on an Android e-ink reader. Removes animations, fades, shadows and blur — they leave ghosting on such a screen. Pure black on white, hard borders, bigger buttons, page turns that jump instead of sliding.","Режим для e-ink читалок":"E-ink reader mode","Перенести выделения в заметки":"Move highlights into notes","Инструкция по плагину":"Plugin guide","Инструкция: разбор всех настроек по шагам":"Guide: every setting, step by step","Команды и горячие клавиши":"Commands and hotkeys","Как перенести выделения в заметки":"Moving highlights into notes","Вкладка «Данные»: где что лежит":"The Data tab: where things live","Вкладка «Перевод»":"The Translate tab","Заметка книги и шаблон":"The book note and the template","Куда складывать заметки":"Where notes are filed","Вкладка «Заметки»: название заметки":"The Notes tab: note titles","«Погружение» и цель чтения":"Immersive mode and the reading goal","«Выравнивание» и «Положение текста»":"Alignment and text position","Настройка «Листание страниц»":"The \"Turning pages\" setting","Вкладка «Чтение»: статистика":"The Reading tab: statistics","Дальше — разбор настроек":"Next: a tour of the settings","Что перенести в заметку":"What to copy into the note","Заметка «{0}» — {1} уже перенесено, отмечено {2} новых":"Note \"{0}\" — {1} already there, {2} new ones ticked","Заметка «{0}» — все {1} ещё не перенесены":"Note \"{0}\" — none of the {1} are there yet","Заметка книги не привязана — доступны только отдельные заметки":"No book note linked — separate notes only","Выделить все":"Select all","Снять все":"Clear all","Только новые":"New only","уже в заметке":"already in the note","Отмечено: {0} из {1}":"Ticked: {0} of {1}","В заметку книги":"Into the book note","Отдельными заметками":"As separate notes","Эта цитата уже есть в «{0}»":"That quote is already in \"{0}\"","Все выбранные цитаты уже есть в «{0}»":"All the selected quotes are already in \"{0}\"","Добавлено в «{0}»: {1}, пропущено уже имевшихся: {2}":"Added to \"{0}\": {1}; skipped as already present: {2}","Название подбирается автоматически: первое предложение фрагмента или его начало по границе слова. Выключено — в имя файла идёт весь фрагмент, как раньше.":"The title is chosen automatically: the passage's first sentence, or its opening cut on a word boundary. Off — the whole passage goes into the filename, as before.","Короткие названия без вопросов":"Short titles, no questions","Перед созданием заметки из выделения появится окно с коротким названием — его можно исправить или одной кнопкой вставить фрагмент целиком. Без этого имя файла берётся из самого фрагмента и выходит очень длинным.":"Before a note is created from a highlight, a dialog offers a short title you can edit, or insert the whole passage with one click. Without it the filename is taken from the passage itself and comes out very long.","Спрашивать название заметки":"Ask for the note title","Отмена":"Cancel","Сам фрагмент попадёт в текст заметки целиком — название на это не влияет.":"The passage itself goes into the note in full — the title does not affect that.","Взять весь фрагмент как название":"Use the whole passage as the title","Какую книгу открыть?":"Which book do you want to open?","Книга не найдена: {0}":"Book not found: {0}","Открыть книгу: {0}":"Open book: {0}","Открыть книгу…":"Open a book…","Продолжить чтение (последняя книга)":"Continue reading (last book)","Перестроение при сворачивании панелей стало плавным, а не рывком":"Re-layout when sidebars open or close now fades instead of jumping","Строки заполняют страницу до конца — больше нет пустых мест внизу колонки":"Lines fill the page to the bottom — no more blank gaps at the foot of a column","Листание строго вправо, без съезжания в угол, и текст стал чётким":"Page turns go straight sideways instead of drifting into the corner, and text is sharp","Статистика чтения: сколько всего прочитано, серия дней и график за две недели":"Reading stats: all-time total, day streak and a two-week chart","Книгу можно открыть командой — своя команда и горячая клавиша на каждую книгу":"Open a book by command — each book gets its own command and hotkey","Сколько минут в день вы хотите читать. Прогресс за сегодня — в карточке вверху этой вкладки.":"How many minutes a day you want to read. Today's progress is in the card at the top of this tab.","Откройте книгу и включите таймер ▶ — здесь появится история чтения.":"Open a book and start the timer ▶ — your reading history will appear here.","14 дней назад":"14 days ago","лучший день":"best day","в среднем за день":"daily average","дней с книгой":"days with a book","сегодня":"today","{0} дн. подряд":"{0}-day streak","за всё время с книгами":"all-time with books","{0} д":"{0} d","{0} д {1} ч":"{0} d {1} h","{0} ч":"{0} h","меньше минуты":"less than a minute","Положение на странице":"Position on the page","Положение текста на странице":"Text position on the page","Сверху":"Top","Снизу":"Bottom","Куда прижимать текст, если страница заполнена не до конца — например, в конце главы.":"Where to place the text when a page isn't filled — at the end of a chapter, for instance.","Если страница заполнена не до конца (например, в конце главы), текст можно не оставлять прижатым к верху. Меняется и на лету — в панели настроек чтения.":"When a page isn't filled (at the end of a chapter, for instance), the text needn't stay pinned to the top. Can also be changed on the fly from the reading-settings panel.","Чтение":"Reading","Заметки":"Notes","Данные":"Data","О плагине":"About","Очистка":"Cleanup","Шаблон":"Template","Цель чтения":"Reading goal","Что нового":"What's new","Показать":"Show","Список изменений последних версий.":"Changes from recent versions.","<b>Curd Reader</b> — версия {0}. Автор: Elton Labs.":"<b>Curd Reader</b> — version {0}. By Elton Labs.","Шрифт, размер и межстрочный интервал настраиваются прямо в книге — иконка ползунков вверху читалки.":"Font, size and line spacing are set inside the book — the sliders icon at the top of the reader.","Доп. настройки":"More settings","Память о книгах":"What the reader remembers","Забыть все книги":"Forget all books","Точно забыть?":"Really forget?","Готово — читалка снова спросит про заметку при открытии книги":"Done — the reader will ask about a note again when you open a book","Забыть настройки этой книги":"Forget this book's settings","Настройки книги сброшены — окно появится при следующем открытии":"Book settings cleared — the setup screen will appear next time you open it","Книг: {0}. Привязанные заметки, шаблоны отдельных книг и отметки «про заметку уже спрашивали». Сами заметки НЕ удаляются — читалка просто забывает связи и спросит про заметку заново при открытии каждой книги.":"Books: {0}. Linked notes, categories, per-book templates and the \"already asked about a note\" marks. The notes themselves are NOT deleted — the reader just forgets the links and will ask about a note again when you open each book.","Заметка книги для ссылок":"Book note for links","Шаблон для этой книги":"Template for this book","Curd Reader обновлён до {0}":"Curd Reader updated to {0}","Понятно":"Got it","Открыть инструкцию":"Open the guide","Расширенные":"Advanced","Категория":"Category","Например: Психология, Бизнес":"e.g. Psychology, Business","Жанр или тема — по ней книги группируются в библиотеке. Несколько — через запятую. Можно оставить пустым.":"Genre or topic — books are grouped by it in the library. Separate several with commas. Can be left empty.","Жанр или тема — по ней книги группируются в библиотеке. Несколько — через запятую. Пусто — без категории.":"Genre or topic — books are grouped by it in the library. Separate several with commas. Empty means no category.","Цитаты и мысли из книги будут ссылаться на эту заметку.":"Quotes and thoughts from this book will link to this note.","Поиск заметки…":"Search notes…","Создать заметку…":"Create a note…","Создать заметку":"Create note","← Назад":"← Back","В хранилище пока нет заметок — создайте новую ниже":"No notes in the vault yet — create one below","Ничего не найдено":"Nothing found","Все":"All","Читаю":"Reading","Не начатые":"Not started","Прочитано":"Finished","Без папки":"No folder","Заметка для книги":"A note for this book","Куда собирать цитаты и мысли из этой книги? Выделенные фрагменты будут ссылаться на эту заметку.":"Where should quotes and thoughts from this book go? Highlights will link back to this note.","Создать заметку для книги":"Create a note for this book","Название заметки":"Note name","Папка":"Folder","Корень хранилища":"Vault root","Создать и начать читать":"Create and start reading","или":"or","Выбрать существующую заметку":"Pick an existing note","Читать без заметки":"Read without a note","В хранилище пока нет заметок — создайте новую":"There are no notes in the vault yet — create one","Больше не спрашивать — создавать заметку для каждой книги автоматически":"Don't ask again — create a note for every book automatically","Это всегда можно поменять потом — кнопка (i) вверху читалки или настройки плагина.":"You can change this later — the (i) button at the top of the reader, or the plugin settings.","+ Создать новую":"+ Create new","Заметка с этой страницы":"Note from this page","{0} — стр. {1}":"{0} — p. {1}","— из [[{0}]], стр. {1}":"— from [[{0}]], p. {1}","> *(страница-скан — текста для цитаты нет, впишите своими словами)*":"> *(scanned page — no text to quote, write it in your own words)*","Заметка создана: {0}":"Note created: {0}","Показывать картинки из книги":"Show pictures from the book","По умолчанию ВЫКЛ: если из страницы извлекается текст — показывается только чистый текст. Включите, чтобы над текстом показывались иллюстрации, схемы и графики: вырезаются сами картинки, а не скриншот всей страницы. На сканах (где текст извлечь нельзя) страница по-прежнему показывается целиком. Откройте книгу заново, чтобы применить.":"Off by default: when a page yields text, only the clean text is shown. Turn this on to also show the book's illustrations, diagrams and charts above the text — the pictures themselves are cropped out, not a screenshot of the whole page. Scanned pages (where no text can be extracted) are still shown in full. Reopen the book to apply.","Перевод":"Translation","Перевод выделенного":"Translating a selection","Оригинал":"Original","Переводим…":"Translating…","Перевести":"Translate","Копировать перевод":"Copy translation","В заметку":"To a note","Пустой ответ переводчика":"The translator returned nothing","Не удалось перевести. Нужен интернет — перевод идёт через Google Translate, и у него есть лимиты на частые запросы.":"Could not translate. An internet connection is required — translation goes through Google Translate, which rate-limits frequent requests.","Кнопка перевода в выделении":"Translate button in the selection popup","Добавляет кнопку перевода в панельку, которая появляется при выделении текста. Перевод открывается рядом с оригиналом, его можно скопировать или сохранить в заметку под цитатой. Откройте книгу заново, чтобы кнопка появилась.":"Adds a translate button to the popup that appears when you select text. The translation is shown next to the original; you can copy it or save it into a note under the quote. Reopen the book for the button to appear.","Это первая версия функции. Перевод идёт через бесплатный Google Translate: нужен интернет, есть лимиты на частые запросы, а выделенный фрагмент уходит на серверы Google. Для больших объёмов пока не рассчитано.":"This is an early version of the feature. Translation uses the free Google Translate: it needs internet, is rate-limited, and the selected fragment is sent to Google's servers. Not intended for large volumes yet.","Переводить на язык":"Translate into","Язык, на который переводить выделенный фрагмент. Исходный язык определяется автоматически.":"The language to translate the selected fragment into. The source language is detected automatically.","Русский":"Russian","Перевод — это отдельный сетевой запрос к Google. Если вам важно, чтобы текст книги никуда не уходил, оставьте функцию выключенной: всё остальное в читалке работает полностью офлайн.":"Translation is a separate network request to Google. If you need the book's text to stay on your device, leave this off: everything else in the reader works fully offline.","\n\n**Перевод:**\n{0}":"\n\n**Translation:**\n{0}","Читалка открывает три формата: EPUB (.epub), FB2 (.fb2) и PDF (.pdf).":"The reader opens three formats: EPUB (.epub), FB2 (.fb2) and PDF (.pdf).","1. Кладёте файл книги (.epub, .fb2 или .pdf) в хранилище и открываете его кликом.":"1. Put the book file (.epub, .fb2 or .pdf) in your vault and open it with a click.","Этот FB2 упакован в ZIP. Распакуйте архив и положите в хранилище сам файл .fb2.":"This FB2 is packed in a ZIP. Unpack the archive and put the .fb2 file itself into your vault.","Выравнивание текста":"Text alignment","Слева":"Left","По ширине":"Justify","По центру":"Center","Справа":"Right","{0} ч {1} мин":"{0} h {1} min","{0} мин":"{0} min","Своя заметка на каждую книгу":"A separate note per book","При первом открытии книги автоматически создаётся отдельная заметка с названием книги (в «Папке заметок-книг», иначе в «Папке для новых заметок») и привязывается к ней. Дальше все выделения из этой книги идут в её заметку. Выключено по умолчанию.":"On a book's first open, a dedicated note titled after the book is created (in the \"Book notes folder\", otherwise the \"New notes folder\") and linked to it. From then on every highlight from this book goes into its note. Off by default.","Заметка книги создана: {0}":"Book note created: {0}","Это первая версия функции — проверьте результат на паре книг. Заметка создаётся один раз при первом открытии книги.":"This is an early version of the feature — check the result on a couple of books first. The note is created once, on a book's first open.","Как выравнивается текст в колонке чтения. Можно менять и на лету — в панели настроек чтения (иконка ползунков) в самой книге. Откройте книгу заново, чтобы применить.":"How text is aligned in the reading column. You can also change it on the fly from the reading-settings panel (sliders icon) inside a book. Reopen the book to apply.","Сегодня прочитано: {0} мин. Всего за всё время: {1}. Кнопка ▶ вверху запускает обратный отсчёт до цели (пауза — ⏸).":"Read today: {0} min. All-time total: {1}. The ▶ button at the top starts the countdown toward the goal (pause — ⏸).","Сегодня прочитано: {0} мин. Всего за всё время: {1} мин.":"Read today: {0} min. All-time total: {1} min.","Жёлтый":"Yellow","Зелёный":"Green","Голубой":"Blue","Розовый":"Pink","Цель чтения на сегодня достигнута 🎉":"Today's reading goal reached 🎉","Таймер выключен — включите его в настройках чтения":"Timer is off — enable it in reading settings","Таймер сброшен":"Timer reset","Листание":"Page turning","Кнопками":"Buttons","По клику":"By click","«По клику»: клик по левой части страницы — назад, по правой — вперёд. Центр свободен для выделения текста.":"\"By click\": clicking the left part of the page goes back, the right part goes forward. The center stays free for selecting text.","Вкл":"On","Выкл":"Off","Тап по картинке — увеличить · фон или ✕ — закрыть":"Tap the image to zoom · background or ✕ to close","Curd Reader: используем pdf.worker.js из CDN (нужен интернет). Причина:":"Curd Reader: using pdf.worker.js from the CDN (internet required). Reason:","Curd Reader: could not register .pdf, use right-click → Открыть в Curd Reader":"Curd Reader: could not register .pdf, use right-click → Open in Curd Reader","Curd Reader — Библиотека":"Curd Reader — Library","Открыть библиотеку":"Open library","Открыть PDF в Curd Reader":"Open PDF in Curd Reader","Сохранить позицию чтения":"Save reading position","Экспортировать выделения в заметки":"Export highlights to notes","📖 Открыть в Curd Reader":"📖 Open in Curd Reader","Показать приветствие (онбординг)":"Show welcome (onboarding)","Заметка книги для ссылок — начните вводить название…":"Book note for links — start typing a name…","Шаблон заметки — начните вводить путь…":"Note template — start typing a path…","## Заметки из выделений":"## Notes from highlights","Заметка":"Note","Пустое выделение":"Empty highlight","Заметка создана":"Note created","Не удалось создать заметку":"Could not create the note","Нет выделений для экспорта":"No highlights to export","Книга":"Book","Не удалось экспортировать выделения":"Could not export highlights","Нет":"No","Да":"Yes","Для книги не привязана заметка — задайте её в настройках":"No note is linked to this book — set it in settings","## Цитаты":"## Quotes","Цитаты добавлены":"Quotes added","Да, открыть":"Yes, open","Не удалось добавить цитаты в заметку книги":"Could not add quotes to the book note","Как пользоваться Curd Reader":"How to use Curd Reader","Что делает каждая кнопка и зачем":"What each button does and why","Верхняя панель":"Top bar","Сохранить позицию":"Save position","Запоминает, где вы остановились, и ставит точку возврата (помечена 💾 в «Настройки → Вернуться к месту»). Это как «сохранение» в игре — нажмите перед закрытием книги, если хотите быть точно уверены, что место не потеряется.":"Remembers where you left off and drops a restore point (marked 💾 in \"Settings → Jump back\"). It's like a \"save\" in a game — press it before closing the book if you want to be completely sure your spot won't be lost.","Обновить":"Refresh","Перестраивает страницу заново, если вёрстка «поехала» — например, после смены размера окна или открытия/закрытия боковой панели или вкладки (текст может отобразиться криво). Текущую позицию при этом сохраняет.":"Rebuilds the page if the layout breaks — for example, after resizing the window or opening/closing a sidebar panel or tab (the text may look misaligned). Your current position is preserved.","Выделения":"Highlights","Открывает список всех ваших выделений в этой книге. Клик по строке — переход к этому месту. Сверху списка — кнопка экспорта в заметки.":"Opens the list of all your highlights in this book. Click a row to jump to that spot. Above the list is the export-to-notes button.","Содержание":"Contents","Оглавление книги — быстрый переход по главам.":"The book's table of contents — quickly jump between chapters.","Настройки":"Settings","Тема, шрифт, размер текста, число колонок и блок «Вернуться к месту» — список точек, к которым можно откатиться.":"Theme, font, text size, column count and the \"Jump back\" block — a list of points you can roll back to.","Справка":"Help","Это окно.":"This window.","Чтение и навигация":"Reading and navigation","Листать страницы":"Turn pages","Стрелки внизу экрана, клавиши ← → ↑ ↓ и пробел, либо свайп пальцем на телефоне. Каждое перелистывание автоматически сохраняет позицию — отдельно жать «Сохранить» не обязательно.":"The arrows at the bottom of the screen, the ← → ↑ ↓ keys and space, or a finger swipe on mobile. Every page turn saves your position automatically — you don't need to press \"Save\" separately.","Выделения и заметки":"Highlights and notes","Выделить текст":"Highlight text","Выделите фрагмент мышью или пальцем — всплывёт палитра цветов. Клик по уже готовому выделению — сменить цвет или удалить его.":"Select a fragment with the mouse or a finger — a color palette pops up. Click an existing highlight to change its color or remove it.","Создать заметку из выделения":"Create a note from a highlight","Правый клик по выделенному тексту → «Создать новую заметку». Заметка создаётся по вашему шаблону в выбранной папке, с цитатой и ссылкой на книгу.":"Right-click the highlighted text → \"Create new note\". The note is created from your template in the chosen folder, with the quote and a link to the book.","Экспортировать все выделения":"Export all highlights","Кнопка вверху панели «Выделения». Собирает все выделения книги разом. Спросит формат: одна общая заметка со всеми цитатами, отдельный файл на каждое выделение, либо вставить все цитаты текстом прямо в привязанную заметку книги.":"The button at the top of the \"Highlights\" panel. Collects all of the book's highlights at once. It asks for a format: one shared note with all quotes, a separate file per highlight, or inserting all quotes as text straight into the linked book note.","Куда вести ссылку «— из [[…]]» в заметках из выделений. Пусто — имя файла книги.":"Where the \"— from [[…]]\" link in highlight notes points. Empty — the book's file name.","Сначала откройте книгу…":"Open a book first…","Выбрать из списка…":"Choose from the list…","В хранилище нет заметок":"No notes in the vault","Свой шаблон только для этой книги (например, под жанр). Пусто — используется общий шаблон из настроек плагина.":"A template just for this book (for example, per genre). Empty — the shared template from the plugin settings is used.","Templates/Шаблон.md":"Templates/Template.md","Про автосохранение":"About autosave","Позиция сохраняется сама при каждом перелистывании и хранится в общем файле, который синхронизируется между устройствами (Obsidian Sync). Перестроение страницы (смена размера окна, панелей, масштаба) больше НЕ двигает и не пересохраняет прогресс — поэтому он не «уезжает» сам по себе.":"Your position is saved automatically on every page turn and kept in a shared file that syncs across devices (Obsidian Sync). Rebuilding the page (resizing the window, panels, zoom) no longer moves or re-saves progress — so it won't \"drift\" on its own.","Добро пожаловать в Curd Reader!":"Welcome to Curd Reader!","Это уютная читалка книг прямо внутри Obsidian. Читаете, выделяете важное и превращаете выделения в заметки — не выходя из хранилища.":"It's a cozy book reader right inside Obsidian. Read, highlight what matters and turn highlights into notes — without leaving your vault.","Пролистайте несколько экранов стрелкой → (или кнопкой «Далее»). Это займёт минуту, зато потом всё будет понятно.":"Flip through a few screens with the → arrow (or the \"Next\" button). It takes a minute, but then everything will be clear.","Какие форматы и как открыть книгу":"Which formats, and how to open a book","Читалка открывает два формата: EPUB (файлы .epub) и PDF (файлы .pdf).":"The reader opens two formats: EPUB (.epub files) and PDF (.pdf files).","Чтобы читать книгу, положите её файл в своё хранилище Obsidian и просто кликните по нему — она откроется в читалке.":"To read a book, put its file into your Obsidian vault and just click it — it opens in the reader.","На левой панели есть значок 📖 «Библиотека» — там все ваши книги с обложками в одном месте.":"In the left sidebar there's a 📖 \"Library\" icon — all your books with covers in one place.","Это самая первая версия":"This is the very first version","Пожалуйста, не загружайте сразу много книг. Начните с двух-трёх и проверьте, что всё работает стабильно именно на вашем устройстве.":"Please don't load a lot of books at once. Start with two or three and check that everything works reliably on your device.","Особенно аккуратно с очень большими PDF (сотни страниц или сканы картинок) — они тяжёлые и могут подтормаживать.":"Be especially careful with very large PDFs (hundreds of pages or scanned images) — they're heavy and may lag.","Плагин будет становиться лучше. А пока — по чуть-чуть и бережно 🙂":"The plugin will keep getting better. For now — little by little and gently 🙂","Выделения: цвета и действия":"Highlights: colors and actions","Выделите текст пальцем или мышью — появится палитра. Выберите цвет, и выделение сохранится.":"Select text with a finger or the mouse — a palette appears. Pick a color and the highlight is saved.","Нажмите на уже готовое выделение — откроется то же меню: сменить цвет, скопировать, поставить закладку «остановился здесь», создать заметку, отправить в заметку книги или удалить.":"Tap an existing highlight — the same menu opens: change color, copy, set a \"stopped here\" bookmark, create a note, send it to the book note, or delete.","Все выделения книги собраны в панели 🖍️ наверху — оттуда можно перейти к любому или экспортировать все сразу.":"All of the book's highlights are gathered in the 🖍️ panel at the top — from there you can jump to any of them or export them all at once.","Что такое «заметка книги»":"What a \"book note\" is","У каждой книги можно завести одну обычную заметку Obsidian — её «главную страницу», например «Мастер и Маргарита.md».":"For each book you can keep one ordinary Obsidian note — its \"home page\", for example \"The Master and Margarita.md\".","Когда вы создаёте заметку из выделения, в ней ставится ссылка на эту заметку книги. А ещё цитаты можно отправлять прямо в неё — так все мысли по книге собираются в одном месте.":"When you create a note from a highlight, it links back to this book note. You can also send quotes straight into it — so all your thoughts on the book gather in one place.","Это не обязательно настраивать прямо сейчас — привязать заметку книги можно в любой момент позже. Откройте книгу, нажмите значок ⓘ (справка) вверху читалки и заполните поле «Заметка книги для ссылок». Пока ничего не привязано, ссылки просто ведут на имя файла книги.":"You don't have to set this up right now — you can link a book note at any time later. Open the book, press the ⓘ (help) icon at the top of the reader and fill in the \"Book note for links\" field. Until something is linked, links simply point to the book's file name.","Где всё хранится":"Where everything is stored","Ваш прогресс чтения и выделения хранятся файлами прямо в хранилище (рядом с книгами или в отдельной папке — это настраивается). Ничего не спрятано «внутри плагина» — всё лежит у вас.":"Your reading progress and highlights are stored as files right in the vault (next to the books or in a separate folder — it's configurable). Nothing is hidden \"inside the plugin\" — it's all yours.","Заметки из выделений и заметки книги — это самые обычные .md заметки в вашей папке. Открывайте, редактируйте и связывайте их, как любые другие.":"Highlight notes and book notes are ordinary .md notes in your folder. Open, edit and link them like any others.","Про синхронизацию":"About syncing","Раз прогресс и выделения — это файлы в хранилище, они синхронизируются вместе с ним (Obsidian Sync, iCloud и т.п.).":"Since progress and highlights are files in the vault, they sync along with it (Obsidian Sync, iCloud, etc.).","Дайте синхронизации закончиться, прежде чем открывать ту же книгу на другом устройстве, и не читайте одну книгу на двух устройствах сразу — иначе позиция может «поспорить сама с собой».":"Let syncing finish before opening the same book on another device, and don't read one book on two devices at once — otherwise the position may \"argue with itself\".","На разных устройствах путь к папке с книгами бывает разным — проверьте папки в настройках плагина.":"The path to the books folder can differ across devices — check the folders in the plugin settings.","Пример: как это всё работает":"Example: how it all works","1. Кладёте файл книги (.epub или .pdf) в хранилище и открываете его кликом.":"1. Put a book file (.epub or .pdf) into the vault and open it with a click.","2. Читаете. Позиция сохраняется сама при каждом перелистывании — ничего нажимать не нужно.":"2. Read. Your position saves itself on every page turn — nothing to press.","3. Понравилась мысль — выделяете её и выбираете цвет. Выделение сохранилось.":"3. Like a thought — highlight it and pick a color. The highlight is saved.","4. (по желанию) Нажимаете ⓘ вверху и привязываете «заметку книги» — свою страницу для этой книги. Это можно сделать и потом.":"4. (optional) Press ⓘ at the top and link a \"book note\" — your page for this book. You can do this later too.","5. Нажимаете на выделение → «в заметку книги» — цитата улетает в эту страницу, и плагин предложит открыть её. Готово: все ваши цитаты в одном месте.":"5. Tap a highlight → \"to book note\" — the quote flies into that page, and the plugin offers to open it. Done: all your quotes in one place.","Готово — приятного чтения!":"All set — enjoy your reading!","Что настроить по желанию (не обязательно сразу): папку для книг и папку для заметок — в настройках плагина. Заметку книги — под значком ⓘ прямо во время чтения.":"What to set up if you like (not required right away): the books folder and the notes folder — in the plugin settings. The book note — under the ⓘ icon while reading.","Что можно вообще не трогать: прогресс и выделения работают сразу и сохраняются сами.":"What you can leave alone entirely: progress and highlights work right away and save themselves.","Полная справка по каждой кнопке — значок ⓘ в читалке. Этот экран приветствия можно снова открыть в настройках плагина.":"Full help for every button — the ⓘ icon in the reader. You can reopen this welcome screen in the plugin settings.","Нажмите «Начать читать» и откройте свою первую книгу 📖":"Press \"Start reading\" and open your first book 📖","‹ Назад":"‹ Back","Начать читать":"Start reading","Далее ›":"Next ›","Пропустить":"Skip","Загружаем книгу…":"Loading the book…","Ошибка при открытии файла":"Error opening the file","Сбросить таймер":"Reset timer","Таймер: сколько осталось до цели — старт/пауза":"Timer: time left to the goal — start/pause","Обновить (перерисовать вид)":"Refresh (redraw the view)","Оглавление":"Table of contents","Настройки чтения":"Reading settings","Создать новую заметку":"Create new note","Текстом в заметку книги":"As text into the book note","Нечего сохранять":"Nothing to save","Книга не открыта":"No book is open","Тема":"Theme","Тёмная":"Dark","Светлая":"Light","Сепия":"Sepia","Размер шрифта":"Font size","Шрифт":"Font","Межстрочный":"Line spacing","Страниц рядом":"Pages side by side","1 страница":"1 page","2 страницы":"2 pages","Вернуться к месту":"Jump back","Действия":"Actions","Точек пока нет":"No points yet","Недоступно":"Unavailable","Нечего обновлять":"Nothing to refresh","Обновлено":"Refreshed","Копировать текст":"Copy text","Скопировано ✓":"Copied ✓","Не удалось скопировать":"Could not copy","Остановился здесь":"Stopped here","Экспортировать в заметку книги":"Export to the book note","Выделение не найдено":"Highlight not found","Пока нет выделений.\nВыделите текст и выберите цвет.":"No highlights yet.\nSelect text and pick a color.","Удалить":"Delete","Закрыть":"Close","Библиотека":"Library","Поиск книги…":"Search a book…","Меньше обложки":"Smaller covers","Больше обложки":"Larger covers","Нет книг":"No books","Все папки vault":"All vault folders","книг":"books","книги":"books","книга":"book","Вид обложки":"Cover fit","Не читалась":"Not started","Ещё":"More","Перейти к странице":"Go to page","Перейти":"Go","Приветствие и инструкция":"Welcome and guide","Показать вводный экран с объяснением форматов, заметки книги, хранения данных и синхронизации.":"Show the intro screen explaining formats, the book note, data storage and syncing.","Открыть приветствие":"Open welcome","Папка с книгами":"Books folder","Пусто = весь vault":"Empty = the whole vault","Папка данных чтения":"Reading-data folder","Где хранятся прогресс чтения, выделения и резервные копии (reading-progress.json, reading-highlights.json). Пусто — рядом с книгами (в «Папке с книгами»). Файлы синхронизируются вместе с хранилищем.":"Where reading progress, highlights and rescue backups are kept (reading-progress.json, reading-highlights.json). Empty — next to the books (in the \"Books folder\"). The files sync along with the vault.","Рядом с книгами":"Next to the books","Заметки из выделений":"Notes from highlights","Шаблон заметки":"Note template","Путь к вашему шаблону (Templater), который применяется к новой заметке из выделения. Пусто — заметка создаётся без шаблона, только с цитатой. Пример: 0. Files/4. Templates/Шаблон стандартный.md":"Path to your (Templater) template applied to each new highlight note. Empty — the note is created without a template, with just the quote. Example: 0. Files/4. Templates/Default template.md","Папка для новых заметок":"Folder for new notes","Куда сохранять заметки, создаваемые из выделений. Пусто — корень хранилища.":"Where to save notes created from highlights. Empty — the vault root.","Папка заметок-книг (для ссылок)":"Book-notes folder (for links)","Из этой папки берётся список при выборе заметки книги, куда ведёт ссылка «— из [[…]]». Пусто — можно выбрать любую заметку хранилища.":"The list for choosing a book note (where the \"— from [[…]]\" link points) is taken from this folder. Empty — you can pick any note in the vault.","3. Resources/База книг":"3. Resources/Book base","Совет: шаблон можно переопределить для отдельной книги — откройте книгу, нажмите (i) вверху и укажите свой шаблон в поле «Шаблон для этой книги» (удобно, если у разных жанров разное оформление).":"Tip: the template can be overridden per book — open the book, press (i) at the top and set your template in the \"Template for this book\" field (handy if different genres need different formatting).","Сохранять цвет выделений при экспорте":"Keep highlight color on export","Каждая цитата оборачивается в цветной <mark> — цвет выделения виден в готовой заметке (в режиме чтения и live preview, без плагинов). Выключите, если хотите обычные цитаты без HTML.":"Each quote is wrapped in a colored <mark> — the highlight color shows in the finished note (in reading mode and live preview, no plugins needed). Turn it off if you want plain quotes without HTML.","Дублировать страницу картинкой, если есть текст":"Duplicate the page as an image when text exists","По умолчанию ВЫКЛ: если из страницы извлекается текст — показывается только чистый текст, без скриншота. Картинка показывается лишь когда текст извлечь нельзя (сканы, схемы, обложки). Включите, если хотите ВИДЕТЬ оригинальный рисунок страницы над текстом (например, для книг-скетчноутов). Откройте книгу заново, чтобы применить.":"OFF by default: if text can be extracted from the page, only the clean text is shown, without a screenshot. The image is shown only when text can't be extracted (scans, diagrams, covers). Turn it on if you want to SEE the original page image above the text (for example, for sketchnote books). Reopen the book to apply.","Листание страниц":"Page turning","«Кнопками» — стрелки/клавиши/свайп. «По клику» — клик по левой/правой части страницы листает назад/вперёд (центр свободен для выделения текста).":"\"Buttons\" — arrows/keys/swipe. \"By click\" — clicking the left/right part of the page turns back/forward (the center stays free for selecting text).","По клику мышкой":"By mouse click","Таймер цели чтения":"Reading-goal timer","Обратный отсчёт до дневной цели (например, 15 минут) — сколько ещё осталось прочитать. Запускается ВРУЧНУЮ кнопкой ▶ вверху читалки, рядом с «Сохранить» (пауза — ⏸).":"A countdown to your daily goal (for example, 15 minutes) — how much is left to read. Started MANUALLY with the ▶ button at the top of the reader, next to \"Save\" (pause — ⏸).","Цель на день, минут":"Daily goal, minutes","Погружение (Immersive)":"Immersive","Панели сверху и снизу мягко притухают через пару секунд без движения мыши и мгновенно возвращаются при движении — чтобы ничто не отвлекало от текста.":"The top and bottom bars gently dim after a couple of seconds without mouse movement and instantly return when you move — so nothing distracts from the text.","Кэш обложек":"Cover cache","Очистить":"Clear","Кэш очищен":"Cache cleared","Прогресс":"Progress","Прогресс очищен":"Progress cleared","Очистить все":"Clear all","Выделения очищены":"Highlights cleared","Синхронизация между устройствами":"Syncing across devices","Способ синхронизации":"Sync method","Подсказывает плагину, насколько свежо перечитывать файлы прогресса при открытии книги.":"Tells the plugin how eagerly to re-read the progress files when opening a book.","Авто (рекомендуется)":"Auto (recommended)","iCloud / Google Drive / папка":"iCloud / Google Drive / folder","Без синхронизации":"No syncing","Облачные папки могут обновляться с задержкой. Прогресс перечитывается при открытии с повторной попыткой, записи объединяются. Одновременная запись с двух устройств всё ещё может вызвать конфликт службы синхронизации.":"Cloud folders (iCloud/Drive) update with a delay. If you only read on one device there will be no conflicts: the plugin re-reads progress every time a book is opened and carefully merges highlights.","✓ Цель достигнута — {0} мин сегодня":"✓ Goal reached — {0} min today","⏱ {0} из {1} мин · {2}%":"⏱ {0} of {1} min · {2}%","{0} мин/день":"{0} min/day","Сегодня прочитано: {0} мин. Кнопка ▶ вверху запускает обратный отсчёт до цели (пауза — ⏸).":"Read today: {0} min. The ▶ button at the top starts the countdown to the goal (pause — ⏸).","\n\n— из [[{0}]]":"\n\n— from [[{0}]]","Выделения — {0}":"Highlights — {0}","---\ncreated: {0}\nsource: \"[[{1}]]\"\ntags: [выделения]\n---\n\n# {2}\n\n{3}\n\n— из [[{4}]]\n":"---\ncreated: {0}\nsource: \"[[{1}]]\"\ntags: [highlights]\n---\n\n# {2}\n\n{3}\n\n— from [[{4}]]\n","Экспортировано выделений: {0}":"Highlights exported: {0}","Создаю заметки: {0}…":"Creating notes: {0}…","Создано заметок: {0}, ошибок: {1}":"Notes created: {0}, errors: {1}","Создано заметок: {0}":"Notes created: {0}","Заметка книги не найдена: {0}":"Book note not found: {0}","Добавлено цитат в «{0}»: {1}":"Quotes added to \"{0}\": {1}","Открыть заметку «{0}» в отдельной вкладке?":"Open the note \"{0}\" in a separate tab?","Отдельная заметка на каждое ({0})":"A separate note for each ({0})","Текстом в заметку книги ({0})":"As text into the book note ({0})","Нет заметок в «{0}»":"No notes in \"{0}\"","Заметка книги: {0}":"Book note: {0}","Шаблон книги: {0}":"Book template: {0}","Экран {0}":"Screen {0}","Готовим книгу… {0}%":"Preparing the book… {0}%","Выделить: {0}":"Highlight: {0}","Сохранено ✓ — {0}%":"Saved ✓ — {0}%","Разворот {0} из {1}":"Spread {0} of {1}","Вернулись к {0}%":"Jumped back to {0}%","Закладка «остановился здесь» — {0}%":"\"Stopped here\" bookmark — {0}%","{0}<span>Экспортировать в заметки ({1})</span>":"{0}<span>Export to notes ({1})</span>","<p style=\"padding:40px;color:var(--er-muted);margin:auto;\">Ошибка: {0}</p>":"<p style=\"padding:40px;color:var(--er-muted);margin:auto;\">Error: {0}</p>","{0}<span>Справка</span>":"{0}<span>Help</span>","Сегодня прочитано: {0} мин.":"Read today: {0} min.","Сохранено: {0}":"Saved: {0}","Книг: {0}":"Books: {0}","Всего: {0}":"Total: {0}","Прогресс чтения и выделения хранятся <b>файлами прямо в хранилище</b>, рядом с книгами:":"Reading progress and highlights are stored <b>as files right in the vault</b>, next to the books:","Поэтому они переезжают между ПК и телефоном <b>любым</b> способом, которым вы синхронизируете само хранилище ":"So they travel between PC and phone by <b>any</b> means you use to sync the vault itself ","(Obsidian Sync, iCloud, Google Drive, Remotely Save и т.п.). Привязка к месту — по номеру абзаца, ":"(Obsidian Sync, iCloud, Google Drive, Remotely Save, etc.). The position is anchored by paragraph number, ","так что ПК и телефон находят одну и ту же точку при любом размере экрана.<br>":"so PC and phone find the same spot at any screen size.<br>","Настройки оформления и кэш обложек — локальные (в <code>data.json</code> плагина) и намеренно не синхронизируются.":"Appearance settings and the cover cache are local (in the plugin's <code>data.json</code>) and are intentionally not synced.","Добавить книгу":"Add a book","Отпустите файлы, чтобы добавить их в библиотеку":"Drop the files to add them to your library","Поддерживаются только файлы PDF, EPUB и FB2":"Only PDF, EPUB and FB2 files are supported","Файлы не выбраны":"No files selected","Добавлено книг: {0}":"Books added: {0}","пропущено: {0}":"skipped: {0}","Не удалось добавить: {0}":"Could not add: {0}","Абзацы в PDF сохраняются как в оригинале — текст больше не склеивается в сплошную стену":"PDF paragraphs are kept as in the original — the text no longer glues into one solid wall","Библиотека: кнопка «Добавить книгу» и перетаскивание файлов (PDF, EPUB, FB2) прямо в окно":"Library: an \"Add a book\" button and drag-and-drop of files (PDF, EPUB, FB2) straight into the window","PDF-движок встроен в плагин — книги открываются офлайн, ничего не подгружается из интернета":"The PDF engine is now bundled in — books open offline, nothing is fetched from the internet","В списке выделений комментарий больше не ломает цитату — он аккуратно встаёт под ней":"In the highlights list a comment no longer breaks the quote — it sits neatly underneath it"};
 // New translations go HERE, not into the literal above: that one is a single
 // generated line thousands of entries long, and anything added inside it is
 // unreviewable and easy to lose. Same table, readable diff.
@@ -79,8 +84,8 @@ Object.assign(__erEN, {
     "The button at the top of the Highlights panel. It opens a list where you tick what you want — one by one, \"Select all\" or \"New only\". Anything already copied into the book note is marked and left unticked, so exporting again never duplicates it. Then choose: paste them as text into the book note, or make a separate note for each passage.",
   "Следующие экраны проходят по настройкам плагина: что делает каждая, что выбрать и что будет, если ничего не менять.":
     "The next few screens walk through the plugin's settings: what each one does, what to pick, and what happens if you change nothing.",
-  "Открыть настройки: шестерёнка Obsidian → «Плагины сообщества» → Book Reader. Вверху пять вкладок: Чтение, Заметки, Перевод, Данные, О плагине.":
-    "To open the settings: Obsidian's gear icon → Community plugins → Book Reader. There are five tabs at the top: Reading, Notes, Translation, Data and About.",
+  "Открыть настройки: шестерёнка Obsidian → «Плагины сообщества» → Curd Reader. Вверху пять вкладок: Чтение, Заметки, Перевод, Данные, О плагине.":
+    "To open the settings: Obsidian's gear icon → Community plugins → Curd Reader. There are five tabs at the top: Reading, Notes, Translation, Data and About.",
   "Ни одну из них не обязательно настраивать сразу — плагин работает и так. Этот разбор нужен, чтобы вы знали, что вообще можно поменять.":
     "None of this has to be set up now — the plugin works as it is. This tour is here so you know what can be changed at all.",
   "Вверху вкладки — карточка со статистикой: сколько прочитано за всё время, серия дней подряд, среднее за день, лучший день и график за две недели.":
@@ -141,7 +146,7 @@ Object.assign(__erEN, {
     "\"Books folder\" — where the plugin looks for books to fill the library. Empty means it searches the whole vault.",
   "«Папка для данных» — где лежат файлы прогресса и выделений. Пусто — рядом с книгами. Эти файлы синхронизируются между устройствами, поэтому чтение продолжается с того же места на телефоне.":
     "\"Data folder\" — where the progress and highlight files live. Empty means next to the books. These files sync between devices, which is how reading carries on from the same spot on your phone.",
-  "«Память о книгах» — кнопка «Забыть все книги» сбрасывает привязки заметок и категорий, но сами заметки не удаляет. Нужна, если хотите настроить всё заново.":
+  "«Память о книгах» — кнопка «Забыть все книги» сбрасывает привязки заметок и шаблоны книг, но сами заметки не удаляет. Нужна, если хотите настроить всё заново.":
     "\"What the reader remembers\" — the \"Forget all books\" button clears the note links and categories without deleting any notes. Use it if you want to set everything up again from scratch.",
   "Кнопка экспорта вверху панели «Выделения» открывает список всех выделений книги с галочками.":
     "The export button at the top of the Highlights panel opens a tick-list of every highlight in the book.",
@@ -225,7 +230,7 @@ Object.assign(__erEN, {
     "Service, key and model. A local model needs no key and sends nothing to the internet.",
   "Сервис": "Service",
   "Ключ": "Key",
-  "Хранится в настройках плагина, внутри вашего хранилища. Если хранилище синхронизируется, ключ едет вместе с ним — держите это в уме.":
+  "Хранится в защищённом хранилище секретов Obsidian. В файлы настроек и новые резервные копии не записывается. Требуется версия Obsidian с SecretStorage.":
     "Kept in the plugin's settings, inside your vault. If the vault syncs, the key travels with it — worth knowing.",
   "Модель": "Model",
   "Пусто — модель по умолчанию для этого сервиса: {0}": "Empty — this service's default model: {0}",
@@ -304,9 +309,9 @@ Object.assign(__erEN, {
   "Сохранять «Что нового» заметкой": "Keep «What's new» as a note",
   "После обновления плагина в хранилище появляется заметка со списком изменений — рядом с остальными заметками читалки. Окно «Что нового» показывается один раз, а заметка остаётся.":
     "After the plugin updates, a note listing the changes appears in your vault, next to the reader's other notes. The «What's new» window shows once; the note stays.",
-  "Book Reader {0} — что нового": "Book Reader {0} - what's new",
+  "Curd Reader {0} — что нового": "Curd Reader {0} - what's new",
   "Книжная читалка обновилась до версии {0}. Что изменилось:":
-    "Book Reader has been updated to {0}. Here is what changed:",
+    "Curd Reader has been updated to {0}. Here is what changed:",
   "Список сохранён заметкой «{0}» — открыть": "Saved as the note «{0}» - open it",
   "Плагин снова открывается там, где раньше писал «Не удалось загрузить»: на Obsidian постарше, на планшетах Huawei и на части Windows-сборок":
     "The plugin loads again where it used to say «Failed to load»: older Obsidian builds, Huawei tablets and some Windows installs",
@@ -359,7 +364,7 @@ function __ertr(s){
 
 
 
-const VIEW_TYPE = "elton-reader";
+const VIEW_TYPE = "curd-reader";
 const DEFAULT = {
   // Interface language: "ru" (default) or "en".
   language: "ru",
@@ -445,9 +450,8 @@ const DEFAULT = {
   // Library cover size = the grid column width in px (cards scale with it). The
   // user can change it live with the −/+ control in the library header.
   libCoverSize: 176,
-  // Last category chip picked in the library ("all", "status:reading",
-  // "folder:<name>", "tag:<name>"), so it survives reopening.
-  libCategory: "all",
+  // Last virtual library folder, restored when reopening the gallery.
+  libFolder: "",
   // Is the "Расширенные" group in the reading panel expanded? Collapsed by
   // default so the panel opens showing only the controls used mid-book.
   readerAdvOpen: false,
@@ -456,10 +460,6 @@ const DEFAULT = {
   shortNoteTitles: true,
   // Colour used when a comment has to create the highlight it hangs on.
   defaultHlColor: "yellow",
-  // Reader-assigned categories per book: { "<book path>": ["Психология", …] }.
-  // Folders only take you so far — most people keep every book in one place, so
-  // this is how a library gets categories without reorganising files on disk.
-  bookTags: {},
   // How pages are turned. "buttons" = the ← → arrows / keys / swipe (default).
   // "click" = tap/click the left or right side of the page to turn it (the
   // middle stays neutral so you can still select text / dismiss popups).
@@ -499,6 +499,7 @@ const DEFAULT = {
   aiEnabled: false,
   aiProvider: "eltonlabs",
   aiKey: "",
+  allowRemoteCovers: false,
   aiModel: "",
   aiBase: "",
   aiInto: "русском",
@@ -751,16 +752,19 @@ function erRevealWhenSettled(view) {
 // схлопнется. В прокрутке колонок нет, там система рисует сама, и вторая
 // подсветка поверх неё выглядит грязно.
 const ER_SEL_HL = "er-selection";
+let selectionPaintWindow;
 function erPaintSelection(view, range) {
   try {
     if (!erIsMobile(view.app)) return;
     if (view.pager && view.pager.scrollMode) return;
-    if (typeof CSS === "undefined" || !CSS.highlights || typeof Highlight !== "function") return;
-    CSS.highlights.set(ER_SEL_HL, new Highlight(range.cloneRange()));
+    const w = winOf(range.startContainer);
+    if (!w.CSS?.highlights || !w.Highlight) return;
+    selectionPaintWindow = w;
+    w.CSS.highlights.set(ER_SEL_HL, new w.Highlight(range.cloneRange()));
   } catch { /* decoration: never let it interrupt selecting */ }
 }
 function erClearPaintedSelection() {
-  try { if (typeof CSS !== "undefined" && CSS.highlights) CSS.highlights.delete(ER_SEL_HL); }
+  try { selectionPaintWindow?.CSS?.highlights?.delete(ER_SEL_HL); selectionPaintWindow = null; }
   catch { /* nothing painted is a fine outcome */ }
 }
 function docOf(el) { return (el && el.ownerDocument) || document; }
@@ -983,7 +987,7 @@ function handleAreaNavClick(view, e) {
   // screenful away from where they were reading. The stylesheet already said the
   // side zones are off in this mode; the code did not know.
   if (view.pager && view.pager.scrollMode) return false;
-  if (e.target instanceof HTMLElement && e.target.closest("img,.er-hl,.er-hl-popup")) return false;
+  if (e.target?.nodeType === 1 && e.target.closest("img,.er-hl,.er-hl-popup")) return false;
   const sel = selOf(view.areaEl);
   if (sel && !sel.isCollapsed && sel.toString().trim()) return false;
   const r = view.areaEl.getBoundingClientRect();
@@ -1069,38 +1073,13 @@ function buildBookSettings(view, p) {
         if (!files.length) { const bf = bookNotesFolderPath(view.app); new Notice(bf ? __ertr("Нет заметок в «{0}»", (bf)) : __ertr("В хранилище нет заметок")); return; }
         new BookNotePicker(view.app, files, async (chosen) => {
           if (!view.plugin.settings.bookNoteLinks) view.plugin.settings.bookNoteLinks = {};
-          view.plugin.settings.bookNoteLinks[view.file.path] = chosen.basename;
+          view.plugin.settings.bookNoteLinks[view.file.path] = chosen.path;
           await view.plugin.saveAll();
-          await writeBookProperty(view.app, chosen.basename, view.file);
-          bnInput.value = chosen.basename;
+          await writeBookProperty(view.app, chosen.path, view.file);
+          bnInput.value = chosen.path;
           new Notice(__ertr("Заметка книги: {0}", (chosen.basename)));
         }).open();
       });
-
-      // ── Category (groups books in the library) ──────────────────────────────
-      p.createDiv("er-info-group").setText(__ertr("Категория"));
-      const tgWrap = p.createDiv("er-info-booknote");
-      const tgHint = tgWrap.createDiv("er-info-rowdesc");
-      tgHint.setText(__ertr("Жанр или тема — по ней книги группируются в библиотеке. Несколько — через запятую. Пусто — без категории."));
-      tgHint.addClass("er-panel-hint");
-      const tgInput = tgWrap.createEl("input", { type: "text" });
-      tgInput.addClass("er-panel-input");
-      tgInput.placeholder = __ertr("Например: Психология, Бизнес");
-      tgInput.disabled = !view.file;
-      if (view.file) tgInput.value = bookTagsOf(view.plugin.settings, view.file.path).join(", ");
-      const knownTags = allBookTags(view.plugin.settings);
-      if (knownTags.length) {
-        const dl = tgWrap.createEl("datalist");
-        dl.id = "er-info-tags-" + Math.random().toString(36).slice(2, 8);
-        knownTags.forEach((t) => dl.createEl("option", { value: t }));
-        tgInput.setAttr("list", dl.id);
-      }
-      const saveTags = async () => {
-        if (!view.file) return;
-        await view.plugin.setBookTags(view.file.path, parseBookTags(tgInput.value));
-      };
-      tgInput.addEventListener("change", saveTags);
-      tgInput.addEventListener("blur", saveTags);
 
       // ── Per-book template override ──────────────────────────────────────────
       p.createDiv("er-info-group").setText(__ertr("Шаблон для этой книги"));
@@ -1188,7 +1167,9 @@ function buildReaderExtraSettings(view, p) {
       await view.plugin.saveAll();
       navRow.querySelectorAll(".er-col-btn").forEach((b) => b.removeClass("active"));
       btn.addClass("active");
-      (view.contentEl || view.containerEl).classList.toggle("er-navclick", v === "click");
+      for (const reader of view._librarySettings ? view._readers() : [view]) {
+        (reader.contentEl || reader.containerEl)?.classList.toggle("er-navclick", v === "click");
+      }
     });
   });
   p.createDiv("er-pan-hint").setText(__ertr("«По клику»: клик по левой части страницы — назад, по правой — вперёд. Центр свободен для выделения текста."));
@@ -1203,7 +1184,7 @@ function buildReaderExtraSettings(view, p) {
       await view.plugin.saveAll();
       alRow.querySelectorAll(".er-col-btn").forEach((b) => b.removeClass("active"));
       btn.addClass("active");
-      if (view.bookHtml && typeof view.repaginate === "function") await view.repaginate();
+      if ((view.bookHtml || view._librarySettings) && typeof view.repaginate === "function") await view.repaginate();
     });
   });
   sec(__ertr("Положение на странице"));
@@ -1217,7 +1198,7 @@ function buildReaderExtraSettings(view, p) {
       await view.plugin.saveAll();
       vaRow.querySelectorAll(".er-col-btn").forEach((b) => b.removeClass("active"));
       btn.addClass("active");
-      if (view.bookHtml && typeof view.repaginate === "function") await view.repaginate();
+      if ((view.bookHtml || view._librarySettings) && typeof view.repaginate === "function") await view.repaginate();
       else if (view.bookHtml && typeof view._repaginate === "function") await view._repaginate();
     });
   });
@@ -1236,7 +1217,7 @@ function buildReaderExtraSettings(view, p) {
       onRow.querySelectorAll(".er-col-btn").forEach((b) => b.removeClass("active"));
       btn.addClass("active");
       goalStep.style.opacity = isOn ? "1" : ".45";
-      updateGoalBar(view);
+      for (const reader of view._librarySettings ? view._readers() : [view]) updateGoalBar(reader);
     });
   });
   const gM = goalStep.createDiv("er-sz-btn"); gM.setText("−");
@@ -1249,7 +1230,7 @@ function buildReaderExtraSettings(view, p) {
     s.dailyGoalMin = Math.min(180, Math.max(5, (s.dailyGoalMin || 15) + d));
     setGL();
     await view.plugin.saveAll();
-    updateGoalBar(view);
+    for (const reader of view._librarySettings ? view._readers() : [view]) updateGoalBar(reader);
   };
   gM.addEventListener("click", () => chG(-5));
   gP.addEventListener("click", () => chG(5));
@@ -1336,30 +1317,41 @@ function openImageLightbox(src, app, ownerEl) {
   window.requestAnimationFrame(() => ov.classList.add("er-lightbox-on"));
 }
 let workerReady = false;
+let workerUrl = null;
 // The pdf.js worker is embedded into this bundle at build time (esbuild replaces
 // __PDF_WORKER_CODE__ with the full worker source — see esbuild.config.mjs). We
 // hand it to pdf.js as an in-memory Blob URL, so PDFs work fully offline and there
 // is no separate pdf.worker.js file to ship. That also makes the plugin installable
 // via BRAT, which only downloads main.js / manifest.json / styles.css.
+function pdfResources() {
+  return embeddedPdfResources(__PDF_ASSETS__, window.atob.bind(window));
+}
+
 async function setupWorker(app) {
   if (workerReady)
     return;
   try {
     const code = __PDF_WORKER_CODE__;
     if (!code) throw new Error("embedded pdf.worker is empty");
-    pdfjsLib.GlobalWorkerOptions.workerSrc = URL.createObjectURL(
+    workerUrl = URL.createObjectURL(
       new Blob([code], { type: "application/javascript" })
     );
+    pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
     workerReady = true;
     return;
   } catch (e) {
     // Запасного пути через CDN здесь нет намеренно: правила каталога запрещают
     // подтягивать код из сети, а воркер и так вшит в сборку. Если он почему-то
     // не поднялся — честно говорим об этом, а не тянем скрипт со стороны.
-    console.error("Book Reader: не удалось поднять встроенный pdf.worker", e);
+    console.error("Curd Reader: не удалось поднять встроенный pdf.worker", e);
     new Notice(__ertr("Не удалось подготовить чтение PDF. Переустановите плагин."));
   }
-  workerReady = true;
+  throw new Error("PDF worker could not be prepared");
+}
+function readerSecretId(app, prefix = "curd-reader") {
+  let hash = 0;
+  for (const ch of app.vault.getName()) hash = ((hash * 31) + ch.charCodeAt(0)) >>> 0;
+  return `${prefix}-${hash.toString(16)}`;
 }
 const EltonReader = class extends Plugin {
   constructor() {
@@ -1367,8 +1359,12 @@ const EltonReader = class extends Plugin {
     this.settings = { ...DEFAULT };
     this.progress = {};
     this.thumbCache = {};
+    this.thumbMeta = {};
+    this.library = emptyLibrary();
     this.highlights = {};
     this.progressBackups = {};
+    this._deletedBooks = new Set();
+    this._hlPending = 0;
   }
   async onload() {
     await this.loadAll();
@@ -1378,25 +1374,27 @@ const EltonReader = class extends Plugin {
     // exact paragraph it came from, so clicking it opens the book there. Using
     // the app's own URI scheme rather than something bespoke means the link
     // works from anywhere a link works — a note, the daily journal, a canvas.
-    this.registerObsidianProtocolHandler("elton-reader", (params) => {
+    const handleBookLink = (params) => {
       // `block` for a quote, `page` for a note made from a scanned page — the
       // latter has no paragraph to anchor to.
       this.openBookAt(params.book || "", params.block, params.page);
-    });
+    };
+    this.registerObsidianProtocolHandler("curd-reader", handleBookLink);
+    if (!this.app.plugins?.enabledPlugins?.has("elton-reader-books")) this.registerObsidianProtocolHandler("elton-reader", handleBookLink);
     this.registerExtensions(["epub"], VIEW_TYPE);
     // FB2 in its own try/catch for the same reason as PDF below: Obsidian has no
     // built-in handler for it, but another plugin might have claimed it, and that
     // must not take epub down with it.
     try { this.registerExtensions(["fb2"], VIEW_TYPE); }
-    catch (e) { console.warn("Elton Reader: could not register .fb2", e); }
+    catch (e) { console.warn("Curd Reader: could not register .fb2", e); }
     // Also open PDFs in the reader instead of Obsidian's built-in PDF viewer.
     // Separate call in try/catch: if some other plugin already claimed "pdf",
     // we still keep epub working and fall back to the right-click menu for PDFs.
     try { this.registerExtensions(["pdf"], VIEW_TYPE); }
-    catch (e) { console.warn(__ertr("Elton Reader: could not register .pdf, use right-click → Открыть в Elton Reader"), e); }
+    catch (e) { console.warn(__ertr("Curd Reader: could not register .pdf, use right-click → Открыть в Curd Reader"), e); }
     this.addRibbonIcon(
       "book-open",
-      __ertr("Book Reader \u2014 \u0411\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0430"),
+      __ertr("Curd Reader \u2014 \u0411\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0430"),
       () => this.openLibrary()
     );
     this.addCommand({
@@ -1412,8 +1410,8 @@ const EltonReader = class extends Plugin {
     this.addCommand({
       id: "open-pdf-reader",
       // Obsidian already prefixes every command with the plugin's name in the
-      // palette, so naming the plugin again read as "Book Reader: Open PDF in
-      // Book Reader" \u2014 and the directory's rules call that out.
+      // palette, so naming the plugin again read as "Curd Reader: Open PDF in
+      // Curd Reader" \u2014 and the directory's rules call that out.
       name: __ertr("\u041E\u0442\u043A\u0440\u044B\u0442\u044C PDF \u0432 \u0447\u0438\u0442\u0430\u043B\u043A\u0435"),
       checkCallback: (checking) => {
         const f = this.app.workspace.getActiveFile();
@@ -1461,9 +1459,18 @@ const EltonReader = class extends Plugin {
         return true;
       }
     });
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      this.renameBookData(file, oldPath).catch(error => console.error("Curd Reader: rename migration failed", error));
+      if (file.extension === "md") {
+        for (const [book, link] of Object.entries(this.settings.bookNoteLinks || {})) {
+          if (link === oldPath || link + ".md" === oldPath) this.settings.bookNoteLinks[book] = file.path;
+        }
+        this._saveLocalData();
+      }
+    }));
     this.registerEvent(this.app.workspace.on("file-menu", (menu, file) => {
       if (file instanceof TFile && file.extension === "pdf")
-        menu.addItem((item) => item.setTitle(__ertr("\u{1F4D6} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 Book Reader")).setIcon("book-open").onClick(() => this.openFile(file)));
+        menu.addItem((item) => item.setTitle(__ertr("\u{1F4D6} \u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0432 Curd Reader")).setIcon("book-open").onClick(() => this.openFile(file)));
     }));
     this.addSettingTab(new SettingsTab(this.app, this));
     this.addCommand({
@@ -1561,13 +1568,20 @@ const EltonReader = class extends Plugin {
     // on the forum. A modal sits above the workspace and keeps its own touches,
     // which is exactly what a book needs.
     if (this.app.isMobile) {
-      new ReaderModal(this.app, this, file).open();
-      return;
+      const existing = this._openReaderModal;
+      if (existing?.file?.path === file.path) { await existing._loadTask; return existing; }
+      existing?.close();
+      const view = new ReaderModal(this.app, this, file);
+      view.open();
+      await view._loadTask;
+      return view;
     }
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
     const leaf = leaves.length > 0 ? leaves[0] : this.app.workspace.getLeaf("tab");
     await leaf.setViewState({ type: VIEW_TYPE, state: { path: file.path }, active: true });
-    this.app.workspace.revealLeaf(leaf);
+    await this.app.workspace.revealLeaf(leaf);
+    await leaf.view._loadTask;
+    return leaf.view;
   }
   // Open the library. As a tab by default, so it can be docked, split, resized
   // and dragged out into its own window like anything else in Obsidian; in a
@@ -1606,36 +1620,19 @@ const EltonReader = class extends Plugin {
   // between devices and survives a different font size or column count.
   async openBookAt(path, block, page) {
     const file = this.app.vault.getAbstractFileByPath(erPath(path));
-    if (!(file instanceof TFile)) {
-      new Notice(__ertr("Книга не найдена: {0}", path));
-      return;
+    if (!(file instanceof TFile) || !/^(epub|fb2|pdf)$/.test(file.extension)) {
+      new Notice(__ertr("Книга не найдена: {0}", path)); return;
     }
-    await this.openFile(file);
-    let idx = Number(block);
-    if (!Number.isFinite(idx) || idx < 0) {
-      // No paragraph anchor — this came from a scanned page, which carries a
-      // page number instead. Resolve it to the first block of that page.
-      const pg = Number(page);
-      if (!Number.isFinite(pg) || pg < 1) return;
-      for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
-        const view = leaf.view;
-        if (view && typeof view.jumpToPdfPageWhenReady === "function") {
-          view.jumpToPdfPageWhenReady(pg);
-          return;
-        }
-      }
-      return;
-    }
-    // The book is still being laid out at this point; the view exposes the jump
-    // so it can be applied once the text exists.
-    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
-      const view = leaf.view;
-      if (view && typeof view.jumpToBlockWhenReady === "function") {
-        view.jumpToBlockWhenReady(idx);
-        return;
-      }
+    const view = await this.openFile(file);
+    if (!view || view.file?.path !== file.path) return;
+    await view._loadTask;
+    if (block !== undefined && block !== "" && Number.isInteger(Number(block)) && Number(block) >= 0) {
+      await view.jumpToBlockWhenReady(Number(block));
+    } else if (Number.isInteger(Number(page)) && Number(page) >= 1) {
+      await view.jumpToPdfPageWhenReady(Number(page));
     }
   }
+
   // Folder that holds reading data (progress / highlights / rescue backups):
   // the dedicated "dataFolder" if set, otherwise next to the books (booksFolder).
   _dataFolder() {
@@ -1649,9 +1646,13 @@ const EltonReader = class extends Plugin {
     return erPath(folder ? `${folder}/reading-progress.json` : "reading-progress.json");
   }
   async loadAll() {
-    let _a, _b, _c;
+    let _a, _b;
     const d = await this.loadData();
     this.settings = { ...DEFAULT, ...(_a = d == null ? void 0 : d.settings) != null ? _a : {} };
+    if (this.app.secretStorage) {
+      const savedKey = this.app.secretStorage.getSecret(readerSecretId(this.app)) || this.app.secretStorage.getSecret(readerSecretId(this.app,"elton-reader"));
+      if (!this.settings.aiKey && savedKey) this.settings.aiKey = savedKey;
+    }
     // Overlay whatever THIS device last looked like (no-op unless enabled).
     applyDeviceProfile(this.settings);
     // An older install may carry a null here from a build that derived this
@@ -1688,6 +1689,7 @@ const EltonReader = class extends Plugin {
     this.progress = await this._loadProgressFromVault();
     // Highlights live next to progress so they also sync via Obsidian Sync
     this.highlights = await this._loadHighlightsFromVault();
+    await this.refreshLibrary();
     // One-time repair. Older builds set "already asked about this book" BEFORE
     // the reader answered — and back then the prompt couldn't create a note at
     // all, and gave up silently when no book-notes folder was configured. Those
@@ -1698,8 +1700,7 @@ const EltonReader = class extends Plugin {
     if (!this.settings.promptedRepaired) {
       const asked = this.settings.bookNotePrompted || {};
       const links = this.settings.bookNoteLinks || {};
-      let freed = 0;
-      for (const k of Object.keys(asked)) if (!links[k]) { delete asked[k]; freed++; }
+      for (const k of Object.keys(asked)) if (!links[k]) { delete asked[k]; }
       this.settings.promptedRepaired = true;
       // Previously logged how many books were repaired. It ran once per install
       // and told the reader nothing they could act on, so it only added noise to
@@ -1726,12 +1727,139 @@ const EltonReader = class extends Plugin {
     }
   }
   async saveAll() {
-    await this._saveLocalData();
-    await this._saveProgressToVault();
+    const results = await Promise.all([this._saveLocalData(), this._saveProgressToVault()]);
+    return results.every(Boolean);
   }
   _saveLocalData() {
     captureDeviceProfile(this.settings);
-    return this.saveData({ settings: this.settings, progressBackups: this.progressBackups, highlightsBackups: this.highlightsBackups, lastBookPath: this._lastBookPath || "" });
+    const settings = { ...this.settings };
+    if (this.app.secretStorage) {
+      try { this.app.secretStorage.setSecret(readerSecretId(this.app), settings.aiKey || ""); }
+      catch (error) { console.error("Curd Reader: secret save failed", error); return Promise.resolve(false); }
+      settings.aiKey = "";
+    } else if (settings.aiKey) {
+      new Notice(__ertr("Для безопасного хранения ключа обновите Obsidian до версии 1.11.4 или новее."));
+      return Promise.resolve(false);
+    }
+    const data = JSON.stringify({ settings, progressBackups: this.progressBackups, highlightsBackups: this.highlightsBackups, lastBookPath: this._lastBookPath || "" });
+    return this._queueWrite("local", () => this.saveData(JSON.parse(data)));
+  }
+  _queueWrite(channel, operation) {
+    const previous = this._writes?.[channel] || Promise.resolve();
+    if (!this._writes) this._writes = {};
+    const next = previous.then(operation).then(() => true).catch(error => {
+      console.error(`Curd Reader: ${channel} save failed`, error);
+      new Notice(__ertr("Не удалось сохранить данные чтения. Исходный файл оставлен для восстановления."));
+      return false;
+    });
+    this._writes[channel] = next;
+    return next;
+  }
+  async _readRecord(file, kind) {
+    const adapter = this.app.vault.adapter;
+    if (!this._knownDataFiles) this._knownDataFiles = new Set();
+    if (!await adapter.exists(file)) {
+      if (this._knownDataFiles.has(file)) throw new Error("Previously loaded data file is temporarily missing");
+      return {};
+    }
+    const result = validateRecord(JSON.parse(await adapter.read(file)), kind);
+    this._knownDataFiles.add(file);
+    return result;
+  }
+  async _writeRecord(file, value) {
+    const folder = file.substring(0, file.lastIndexOf("/"));
+    if (folder && !await this.app.vault.adapter.exists(folder)) await this.app.vault.createFolder(folder);
+    await this.app.vault.adapter.write(file, JSON.stringify(value, null, 2));
+    (this._knownDataFiles || (this._knownDataFiles = new Set())).add(file);
+  }
+
+  async changeDataLocation(key, value) {
+    const previousLibrary = this._libraryChain || Promise.resolve();
+    let release;
+    const barrier = new Promise(resolve => { release = resolve; });
+    this._libraryChain = previousLibrary.then(() => barrier);
+    try { await previousLibrary; return await this._changeDataLocation(key,value); }
+    finally { release(); }
+  }
+  async _changeDataLocation(key, value) {
+    await this._hlChain;
+    await Promise.all(Object.values(this._writes || {}));
+    const oldValue = this.settings[key];
+    try {
+    const sourceProgress = await this._readRecord(this._progressFilePath(), "progress");
+    const sourceHighlights = await this._readRecord(this._highlightsFilePath(), "highlights");
+    const sourceLibrary = mergeLibraries(await this._readLibrary(), this.library);
+    this.settings[key] = erPath(value);
+    const progressPath = this._progressFilePath(), highlightPath = this._highlightsFilePath();
+      const destinationProgress = await this._readRecord(progressPath, "progress");
+      const destinationHighlights = await this._readRecord(highlightPath, "highlights");
+      const progress = mergeProgress(destinationProgress, mergeProgress(sourceProgress, this.progress), this._deletedBooks);
+      const highlights = { ...destinationHighlights };
+      for (const [book, list] of Object.entries(sourceHighlights)) {
+        const byId = new Map((highlights[book] || []).map(hl => [hl.id, hl]));
+        for (const hl of list) byId.set(hl.id, hl);
+        highlights[book] = [...byId.values()];
+      }
+      const library = mergeLibraries(await this._readLibrary(), sourceLibrary);
+      await this._writeRecord(progressPath, progress);
+      await this._writeRecord(highlightPath, highlights);
+      await this._writeRecord(this._libraryFilePath(), library);
+      this.library = library;
+      this.progress = progress; this.highlights = highlights;
+      if (!await this._saveLocalData()) throw new Error("Settings save failed");
+      // The old source files stay as a recoverable copy.
+      return true;
+    } catch (error) {
+      this.settings[key] = oldValue;
+      console.error("Curd Reader: data migration failed", error);
+      new Notice(__ertr("Не удалось перенести данные. Прежняя папка сохранена."));
+      return false;
+    }
+  }
+  async renameBookData(file, oldPath) {
+    if (!file.extension) {
+      const paths = new Set([...Object.keys(this.progress), ...Object.keys(this.highlights), ...Object.keys(this.settings.bookNoteLinks || {}), ...Object.keys(this.library.books)]);
+      for (const path of paths) if (path.startsWith(oldPath + "/")) {
+        const moved = this.app.vault.getAbstractFileByPath(file.path + path.slice(oldPath.length));
+        if (moved) await this.renameBookData(moved, path);
+      }
+      return;
+    }
+    if (!/^(epub|fb2|pdf)$/.test(file.extension || "")) return;
+    await this._hlChain;
+    await this._writes?.progress;
+    const path = file.path;
+    const moving = this.progress[oldPath];
+    if (moving) this.progress[path] = moving;
+    delete this.progress[oldPath];
+    this._deletedBooks.add(oldPath);
+    this._deletedBooks.delete(path);
+    const highlights = this.highlights[oldPath];
+    delete this.highlights[oldPath];
+    if (highlights) this.highlights[path] = highlights;
+    for (const map of [this.progressBackups, this.highlightsBackups, this.thumbCache, this.thumbMeta, ...["bookNoteLinks", "bookNotePrompted", "bookTags", "bookTemplates", "coverFits"].map(key => this.settings[key])]) {
+      if (map && Object.hasOwn(map, oldPath)) { map[path] = map[oldPath]; delete map[oldPath]; }
+    }
+    if (this._lastBookPath === oldPath) this._lastBookPath = path;
+    await this._persistHighlights(path, disk => {
+      const source = disk[oldPath] || [];
+      const byId = new Map((disk[path] || []).map(hl => [hl.id, hl]));
+      for (const hl of source) byId.set(hl.id, hl);
+      if (source.length || disk[oldPath]) disk[path] = [...byId.values()];
+      delete disk[oldPath];
+    });
+    await this.editLibrary(data => { if (data.books[oldPath]) { data.books[path] = [...new Set([...(data.books[path] || []), ...data.books[oldPath]])]; delete data.books[oldPath]; } });
+    const note = bookNoteLinkFor(this, file);
+    if (note) await writeBookProperty(this.app, note, file);
+    await this.saveAll(); await this._saveThumbCache();
+  }
+  onunload() {
+    this._openReaderModal?.close();
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) closeReader(leaf.view);
+    window.clearTimeout(this._bookCmdTimer);
+    for (const timer of Object.values(this._fmTimers || {})) window.clearTimeout(timer);
+    if (workerUrl) URL.revokeObjectURL(workerUrl);
+    workerUrl = null; workerReady = false;
   }
   // ── Cover thumbnail cache (separate, device-local, NOT synced) ─────────────
   _thumbCachePath() { return erPath(`${this.manifest.dir}/thumb-cache.json`); }
@@ -1740,18 +1868,19 @@ const EltonReader = class extends Plugin {
       const p = this._thumbCachePath();
       if (await this.app.vault.adapter.exists(p)) {
         const j = JSON.parse(await this.app.vault.adapter.read(p));
-        this.thumbCache = (j && j.ver === 2 && j.cache) ? j.cache : {};
+        this.thumbCache = (j && j.ver === 3 && j.cache) ? j.cache : {};
+        this.thumbMeta = j?.ver === 3 ? j.meta || {} : {};
         return;
       }
-    } catch (e) { console.warn("Book Reader: thumb cache load failed", e); }
+    } catch (e) { console.warn("Curd Reader: thumb cache load failed", e); }
     // Migrate the old in-data.json cache once, then persist to the new file.
     this.thumbCache = ((d == null ? void 0 : d.thumbCacheVer) === 2 && (d == null ? void 0 : d.thumbCache)) ? d.thumbCache : {};
     if (Object.keys(this.thumbCache).length) this._saveThumbCache();
   }
   _saveThumbCache() {
     this._thumbSaveChain = (this._thumbSaveChain || Promise.resolve()).then(
-      () => this.app.vault.adapter.write(this._thumbCachePath(), JSON.stringify({ ver: 2, cache: this.thumbCache }))
-    ).catch((e) => console.warn("Book Reader: thumb cache save failed", e));
+      () => this.app.vault.adapter.write(this._thumbCachePath(), JSON.stringify({ ver: 3, cache: this.thumbCache, meta: this.thumbMeta }))
+    ).catch((e) => console.warn("Curd Reader: thumb cache save failed", e));
     return this._thumbSaveChain;
   }
   // ── Daily reading-goal timer ───────────────────────────────────────────────
@@ -1782,32 +1911,24 @@ const EltonReader = class extends Plugin {
     return Math.max(s.lifetimeSeconds || 0, logSum);
   }
   // ── Opening books by command ───────────────────────────────────────────────
-  // Every readable book in the configured folder (or the whole vault when none
-  // is set) — the same rule the library window uses.
+  // The import destination does not limit the library's vault-wide scan.
   bookFiles() {
-    const folder = erPath(this.settings.booksFolder || "");
-    const prefix = folder ? folder + "/" : "";
     return this.app.vault.getFiles().filter(
       (f) => (f.extension === "epub" || f.extension === "pdf" || f.extension === "fb2")
-        && (prefix === "" || f.path.startsWith(prefix))
+
     );
   }
   // The book with the most recent reading timestamp, skipping any whose file has
   // since been deleted or renamed.
   lastReadBookFile() {
-    const prog = this.progress || {};
-    let bestPath = "", bestAt = -1;
-    for (const p of Object.keys(prog)) {
-      const at = (prog[p] && (prog[p].lastRead || prog[p].updated)) || 0;
-      const ts = typeof at === "number" ? at : Date.parse(at) || 0;
-      if (ts > bestAt) { bestAt = ts; bestPath = p; }
+    const entries = Object.entries(this.progress || {}).sort((a, b) => (Number(b[1].lastRead) || 0) - (Number(a[1].lastRead) || 0));
+    for (const [path] of entries.concat([[this._lastBookPath || "", {}]])) {
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (file instanceof TFile && /^(epub|fb2|pdf)$/.test(file.extension)) return file;
     }
-    if (!bestPath) bestPath = this.settings.lastBookPath || "";
-    if (!bestPath) return null;
-    const f = this.app.vault.getAbstractFileByPath(bestPath);
-    return f && f.extension ? f : null;
+    return null;
   }
-  // Register "Book Reader: <title>" for each book so it can be opened directly or
+  // Register "Curd Reader: <title>" for each book so it can be opened directly or
   // bound to a hotkey. Obsidian has no public API for dropping a command, so the
   // ids are tracked and removed through the (undocumented) registry when the list
   // is rebuilt — guarded, since that call is not part of the public API.
@@ -1846,15 +1967,39 @@ const EltonReader = class extends Plugin {
     const base = bookNotesFolderPath(this.app) || notesFolderPath(this.app) || "";
     return this.createBookNote(file, file.basename, base);
   }
-  // Categories assigned to a book. Stored per book rather than derived from the
-  // note, so a book can be filed under a category even without a note.
-  async setBookTags(bookPath, tags) {
-    const s = this.settings;
-    if (!s.bookTags) s.bookTags = {};
-    const list = (tags || []).filter(Boolean);
-    if (list.length) s.bookTags[bookPath] = list;
-    else delete s.bookTags[bookPath];
-    await this.saveAll();
+  _libraryFilePath() { return erPath(this._dataFolder() ? `${this._dataFolder()}/reading-library.json` : "reading-library.json"); }
+  async _readLibrary(file = this._libraryFilePath()) {
+    if (!await this.app.vault.adapter.exists(file)) {
+      if (this._knownDataFiles?.has(file)) throw new Error("Файл библиотеки временно недоступен");
+      return emptyLibrary();
+    }
+    const data = validateLibrary(JSON.parse(await this.app.vault.adapter.read(file)));
+    (this._knownDataFiles || (this._knownDataFiles = new Set())).add(file);
+    return data;
+  }
+  async refreshLibrary() {
+    await this._libraryChain;
+    try {
+      this.library = await this._readLibrary();
+      if (!this.library.migratedLegacyTags) {
+        const saved = await this.editLibrary(data => migrateLibraryTags(data, this.settings.bookTags));
+        if (saved) { delete this.settings.bookTags; delete this.settings.libCategory; await this._saveLocalData(); }
+      }
+      return true;
+    } catch (error) { console.error("Curd Reader: library read failed", error); new Notice("Не удалось прочитать папки библиотеки. Файл не будет перезаписан."); return false; }
+  }
+  editLibrary(operation) {
+    this._libraryChain = (this._libraryChain || Promise.resolve()).then(async () => {
+      const file = this._libraryFilePath();
+      const data = await this._readLibrary(file);
+      const result = operation(data);
+      validateLibrary(data);
+      await this._writeRecord(file, data);
+      this.library = data;
+      await this._writeRescue(true);
+      return result === undefined ? true : result;
+    }).catch(error => { console.error("Curd Reader: library update failed", error); new Notice(error.message || "Не удалось сохранить папки библиотеки"); return null; });
+    return this._libraryChain;
   }
   // Create the note for a book and link it. `title` and `folder` come from the
   // setup screen, so the reader can name it and place it wherever they want
@@ -1876,28 +2021,21 @@ const EltonReader = class extends Plugin {
         // from a selection, so a reader who had set one up and turned on
         // automatic book notes got a bare heading and no explanation why —
         // "не совсем понял как работают шаблоны, шаблон не был применен".
-        let body = `# ${name}\n\n`;
-        const tplPath = noteTemplatePath(this.app, file);
-        const tplFile = tplPath ? this.app.vault.getAbstractFileByPath(tplPath) : null;
-        if (tplFile instanceof TFile) {
-          try { body = processTemplateManually(await this.app.vault.read(tplFile), name) + "\n\n"; }
-          catch { /* a broken template must not stop the note being created */ }
-        }
-        note = await this.app.vault.create(path5, body).catch((e) => {
-          console.error("Elton Reader: create book note failed", e);
+        note = await createBookNoteFromTemplate(this.app, file, path5, `# ${name}\n\n`).catch((e) => {
+          console.error("Curd Reader: create book note failed", e);
           return null;
         });
       }
       if (note instanceof TFile) {
-        s.bookNoteLinks[file.path] = note.basename;
+        s.bookNoteLinks[file.path] = note.path;
         await this.saveAll();
-        await writeBookProperty(this.app, note.basename, file);
+        await writeBookProperty(this.app, note.path, file);
         return note;
       }
       new Notice(__ertr("Не удалось создать заметку"));
       return null;
     } catch (e) {
-      console.error("Elton Reader: create book note failed", e);
+      console.error("Curd Reader: create book note failed", e);
       new Notice(__ertr("Не удалось создать заметку"));
       return null;
     }
@@ -1920,39 +2058,35 @@ const EltonReader = class extends Plugin {
     if (!prev || typeof prev.percent !== "number") return;
     const list = this.progressBackups[path5] || (this.progressBackups[path5] = []);
     const last = list[list.length - 1];
-    if (last && last.percent === prev.percent) { last.ts = now; return; }
-    list.push({ pct: prev.pct, percent: prev.percent, lastRead: prev.lastRead || now, ts: now });
+    if (last && last.percent === prev.percent && last.block === prev.block) { last.ts = now; return; }
+    list.push({ ...prev, ts: now });
     if (list.length > 30) list.shift();
   }
   async _loadProgressFromVault() {
-    try {
-      const path5 = this._progressFilePath();
-      const exists = await this.app.vault.adapter.exists(path5);
-      if (!exists) return {};
-      const raw = await this.app.vault.adapter.read(path5);
-      return JSON.parse(raw);
-    } catch (e) {
-      console.error("Elton Reader: could not load progress file", e);
-      return {};
+    try { return await this._readRecord(this._progressFilePath(), "progress"); }
+    catch (error) {
+      console.error("Curd Reader: progress read failed", error);
+      new Notice(__ertr("Не удалось прочитать прогресс. Файл не будет перезаписан."));
+      return this.progress || {};
     }
   }
-  async _saveProgressToVault() {
-    try {
-      const path5 = this._progressFilePath();
-      const folder = path5.substring(0, path5.lastIndexOf("/"));
-      if (folder) {
-        const folderExists = await this.app.vault.adapter.exists(folder);
-        if (!folderExists) await this.app.vault.createFolder(folder).catch(() => {});
-      }
-      await this.app.vault.adapter.write(path5, JSON.stringify(this.progress, null, 2));
-      this._writeRescue(false);
-    } catch (e) {
-      console.error("Elton Reader: could not save progress file", e);
-    }
+  _saveProgressToVault() {
+    const file = this._progressFilePath();
+    const snapshot = JSON.parse(JSON.stringify(this.progress));
+    const deleted = new Set(this._deletedBooks);
+    return this._queueWrite("progress", async () => {
+      const disk = await this._readRecord(file, "progress");
+      const merged = mergeProgress(disk, snapshot, deleted);
+      await this._writeRecord(file, merged);
+      // Preserve newer in-session changes while incorporating other books from disk.
+      this.progress = mergeProgress(merged, this.progress, this._deletedBooks);
+      await this._writeRescue(false);
+    });
   }
-  // Safety net: keep a dated copy of progress + highlights + the plugin's own
-  // data.json under "<booksFolder>/_reader-rescue-<date>" so a sync glitch can
-  // never wipe out highlights for good. Progress saves are throttled
+
+  // Bounded snapshots of progress, highlights and plugin data provide an
+  // additional recovery path; they share the vault's external sync policy.
+  // Progress saves are throttled
   // (≤ once / 5 min); highlight saves force a write (force=true).
   async _writeRescue(force) {
     try {
@@ -1965,8 +2099,7 @@ const EltonReader = class extends Plugin {
       const bf = this._dataFolder();
       // Prefer the configured data/books folder. When neither is set, keep the
       // backup next to the last book read (persisted across restarts). If we
-      // still don't know any book folder, SKIP the backup entirely rather than
-      // dumping a "_reader-rescue" folder at the vault root.
+      // still don't know any book folder, use a dedicated folder at the vault root.
       let base;
       if (bf) {
         base = erPath(`${bf}/_reader-rescue`);
@@ -1974,18 +2107,23 @@ const EltonReader = class extends Plugin {
         const bookDir = this._lastBookPath.slice(0, this._lastBookPath.lastIndexOf("/"));
         base = erPath(`${bookDir}/_reader-rescue`);
       } else {
-        return;
+        base = "_reader-rescue";
       }
-      const dir = erPath(`${base}/_reader-rescue-${date}`);
+      const slot = new Date(now).toISOString().replace(/[:.]/g, "-");
+      const dir = erPath(`${base}/_reader-rescue-${date}-${slot}`);
       const ad = this.app.vault.adapter;
       if (!await ad.exists(base)) await this.app.vault.createFolder(base).catch(() => {});
       if (!await ad.exists(dir)) await this.app.vault.createFolder(dir).catch(() => {});
       await ad.write(erPath(`${dir}/reading-progress.json`), JSON.stringify(this.progress, null, 2));
       await ad.write(erPath(`${dir}/reading-highlights.json`), JSON.stringify(this.highlights, null, 2));
-      const dataPath = erPath(`${this.manifest.dir}/data.json`);
-      if (await ad.exists(dataPath)) await ad.write(erPath(`${dir}/plugin-data.json`), await ad.read(dataPath));
+      await ad.write(erPath(`${dir}/reading-library.json`), JSON.stringify(this.library, null, 2));
+      const settings = { ...this.settings, aiKey: "" };
+      await ad.write(erPath(`${dir}/plugin-data.json`), JSON.stringify({ settings, progressBackups: this.progressBackups, highlightsBackups: this.highlightsBackups }));
+      const folders = (await ad.list(base)).folders.filter(p => p.startsWith(base + "/_reader-rescue-")).sort();
+      // Keep a bounded history; each snapshot has its own name.
+      for (const old of folders.slice(0, Math.max(0, folders.length - 30))) await ad.rmdir(old, true);
     } catch (e) {
-      console.error("Elton Reader: rescue backup failed", e);
+      console.error("Curd Reader: rescue backup failed", e);
     }
   }
   saveProgress(path5, spread, total, block) {
@@ -2003,13 +2141,18 @@ const EltonReader = class extends Plugin {
     const periodic = !last || (now - (last.ts || 0)) >= 3 * 60 * 1e3;
     if (bigJump || periodic) this._recordBackup(path5, prev, now);
     this._lastBookPath = path5;
+    this._deletedBooks.delete(path5);
     const entry = { pct, percent: pctDisplay, lastRead: now };
     // Device-independent anchor: global index of the first visible paragraph.
-    if (typeof block === "number" && block >= 0) entry.block = block;
+    if (typeof block === "number" && block >= 0) {
+      entry.block = block;
+      const view = this._openReaderModal?.file?.path === path5 ? this._openReaderModal
+        : this.app.workspace?.getLeavesOfType(VIEW_TYPE).map(leaf => leaf.view).find(view => view.file?.path === path5);
+      entry.anchor = anchorFor(view?.pager.blockEl(block));
+    }
     this.progress[path5] = entry;
-    this._saveProgressToVault();
-    this._saveLocalData();
     this._syncProgressFrontmatter(path5);
+    return Promise.all([this._saveProgressToVault(), this._saveLocalData()]).then(results => results.every(Boolean));
   }
   // Mirror the reading position into the book note's frontmatter.
   //
@@ -2039,37 +2182,60 @@ const EltonReader = class extends Plugin {
           fm["reading-updated"] = new Date(p.lastRead || Date.now()).toISOString().slice(0, 10);
         });
       } catch (e) {
-        console.warn("Book Reader: could not write progress into the book note", e);
+        console.warn("Curd Reader: could not write progress into the book note", e);
       }
     }, 4000);
   }
   // Manual save (the 💾 button / command). Like saveProgress, but always drops a
   // "manual" restore point for the CURRENT position so the user can jump back to
   // exactly here later, even after lots of further reading.
-  saveNow(path5, spread, total, block) {
+  async saveNow(path5, spread, total, block) {
     const pct = total > 1 ? spread / (total - 1) : 0;
     const pctDisplay = Math.round(pct * 100);
     const now = Date.now();
     const hasBlock = typeof block === "number" && block >= 0;
     this._lastBookPath = path5;
+    this._deletedBooks.delete(path5);
     const entry = { pct, percent: pctDisplay, lastRead: now };
-    if (hasBlock) entry.block = block;
+    if (hasBlock) {
+      entry.block = block;
+      const view = this._openReaderModal?.file?.path === path5 ? this._openReaderModal
+        : this.app.workspace?.getLeavesOfType(VIEW_TYPE).map(leaf => leaf.view).find(view => view.file?.path === path5);
+      entry.anchor = anchorFor(view?.pager.blockEl(block));
+    }
     this.progress[path5] = entry;
     const list = this.progressBackups[path5] || (this.progressBackups[path5] = []);
     const last = list[list.length - 1];
-    if (last && last.percent === pctDisplay) {
+    if (last && last.percent === pctDisplay && last.block === block) {
       last.ts = now; last.lastRead = now; last.manual = true;
       if (hasBlock) last.block = block;
+      if (entry.anchor) last.anchor = entry.anchor;
     } else {
       const snap = { pct, percent: pctDisplay, lastRead: now, ts: now, manual: true };
       if (hasBlock) snap.block = block;
+      if (entry.anchor) snap.anchor = entry.anchor;
       list.push(snap);
       if (list.length > 30) list.shift();
     }
-    this._saveProgressToVault();
-    this._saveLocalData();
     this._syncProgressFrontmatter(path5);
-    return pctDisplay;
+    const saved = await Promise.all([this._saveProgressToVault(), this._saveLocalData()]);
+    return saved.every(Boolean) ? pctDisplay : null;
+  }
+  async removeReadingHistory(path, snapshot) {
+    const previous = this.getBackups(path);
+    const next = previous.filter(point=>point !== snapshot);
+    this.progressBackups[path] = next;
+    const saved = await this._saveLocalData();
+    if (!saved && this.progressBackups[path] === next) this.progressBackups[path] = previous;
+    return saved;
+  }
+  async clearReadingHistory(path, position) {
+    if (position) this.progress[path] = { ...position };
+    const previous = this.getBackups(path), next = [];
+    this.progressBackups[path] = next;
+    const saved = await this.saveAll();
+    if (!saved && this.progressBackups[path] === next) this.progressBackups[path] = previous;
+    return saved;
   }
   getBackups(path5) {
     const list = this.progressBackups[path5];
@@ -2093,7 +2259,13 @@ const EltonReader = class extends Plugin {
   // Re-reads progress from vault file — call before opening a book
   // to get fresh data after Obsidian Sync may have updated the file.
   async refreshProgress() {
-    this.progress = await this._loadProgressFromVault();
+    await this._writes?.progress;
+    if (this.settings.syncMode === "none") return;
+    if (this.settings.syncMode === "cloud") {
+      try { await this._readRecord(this._progressFilePath(), "progress"); }
+      catch { await new Promise(resolve => window.setTimeout(resolve, 400)); }
+    }
+    this.progress = mergeProgress(await this._loadProgressFromVault(), this.progress, this._deletedBooks);
   }
   // ── Highlights ────────────────────────────────────────
   _highlightsFilePath() {
@@ -2101,39 +2273,38 @@ const EltonReader = class extends Plugin {
     return erPath(folder ? `${folder}/reading-highlights.json` : "reading-highlights.json");
   }
   async _loadHighlightsFromVault() {
-    try {
-      const path5 = this._highlightsFilePath();
-      const exists = await this.app.vault.adapter.exists(path5);
-      if (!exists) return {};
-      const raw = await this.app.vault.adapter.read(path5);
-      return JSON.parse(raw);
-    } catch (e) {
-      console.error("Elton Reader: could not load highlights file", e);
-      return {};
+    try { return await this._readRecord(this._highlightsFilePath(), "highlights"); }
+    catch (error) {
+      console.error("Curd Reader: highlights read failed", error);
+      new Notice(__ertr("Не удалось прочитать выделения. Файл не будет перезаписан."));
+      return this.highlights || {};
     }
   }
-  async _saveHighlightsToVault() {
-    try {
-      const path5 = this._highlightsFilePath();
-      const folder = path5.substring(0, path5.lastIndexOf("/"));
-      if (folder) {
-        const folderExists = await this.app.vault.adapter.exists(folder);
-        if (!folderExists) await this.app.vault.createFolder(folder).catch(() => {});
-      }
-      await this.app.vault.adapter.write(path5, JSON.stringify(this.highlights, null, 2));
-      this._writeRescue(true);
-    } catch (e) {
-      console.error("Elton Reader: could not save highlights file", e);
-    }
+  _saveHighlightsToVault() {
+    const snapshot = JSON.parse(JSON.stringify(this.highlights));
+    return this._persistHighlights("", disk => {
+      for (const key of Object.keys(disk)) delete disk[key];
+      Object.assign(disk, snapshot);
+    });
   }
   async refreshHighlights() {
+    await this._hlChain;
+    if (this.settings.syncMode === "none") return;
     this.highlights = await this._loadHighlightsFromVault();
   }
+
   getHighlights(path5) {
     let _a;
     const list = (_a = this.highlights[path5]) != null ? _a : [];
     // Stable reading order: by block, then by position inside block
-    return [...list].sort((a, b) => a.block - b.block || a.occ - b.occ);
+    const view = [this._openReaderModal, ...(this.app?.workspace?.getLeavesOfType?.(VIEW_TYPE) || []).map(leaf => leaf.view)].find(v => v?.file?.path === path5);
+    const flow = view?.pager?.flow;
+    const blocks = flow ? readerBlocks(flow) : [];
+    return [...list].sort((a, b) => {
+      const first = blocks[resolveAnchor(flow, a.anchor, a.block)], second = blocks[resolveAnchor(flow, b.anchor, b.block)];
+      if (first && second && first !== second) return first.compareDocumentPosition(second) & 4 ? -1 : 1;
+      return a.block - b.block || (a.occ || 0) - (b.occ || 0);
+    });
   }
   addHighlight(path5, hl) {
     if (!this.highlights[path5]) this.highlights[path5] = [];
@@ -2161,10 +2332,11 @@ const EltonReader = class extends Plugin {
     if (!target) { new Notice(__ertr("Сначала выделите фрагмент цветом")); return false; }
     const value = String(text || "").trim();
     if (value) target.comment = value; else delete target.comment;
-    this._persistHighlights(path5, (disk) => {
+    const saved = await this._persistHighlights(path5, (disk) => {
       const d = (disk[path5] || []).find((x) => x.id === target.id);
       if (d) { if (value) d.comment = value; else delete d.comment; }
     });
+    if (!saved) return false;
     new Notice(value ? __ertr("Комментарий сохранён") : __ertr("Комментарий удалён"));
     return true;
   }
@@ -2181,47 +2353,40 @@ const EltonReader = class extends Plugin {
       }
     });
   }
-  // Crash-/sync-safe persistence for incremental highlight edits.
+  // Serialized read-modify-write for incremental highlight edits.
   // Re-reads the on-disk file (which may already contain highlights written by
   // ANOTHER device that this session never loaded) and merges our single change
-  // INTO it, so a stale in-memory copy can never clobber newer data via Obsidian
-  // Sync. Mutations are serialized through a promise chain to avoid lost updates.
+  // INTO it. External sync still has its own conflict/last-writer policy. Mutations are serialized through a promise chain to avoid lost updates.
   _persistHighlights(path5, applyFn) {
-    this._lastBookPath = path5;
+    if (path5) this._lastBookPath = path5;
+    const file = this._highlightsFilePath();
+    this._hlPending++;
     this._hlChain = (this._hlChain || Promise.resolve()).then(async () => {
-      let disk = {};
-      try {
-        const fp = this._highlightsFilePath();
-        if (await this.app.vault.adapter.exists(fp)) {
-          disk = JSON.parse(await this.app.vault.adapter.read(fp));
-        }
-      } catch (e) {
-        console.error("Elton Reader: could not re-read highlights, falling back to memory", e);
-        disk = JSON.parse(JSON.stringify(this.highlights || {}));
-      }
-      if (!disk || typeof disk !== "object") disk = {};
+      const disk = await this._readRecord(file, "highlights");
       applyFn(disk);
-      // Re-add any local highlights the disk copy doesn't have yet (protects
-      // rapid successive edits and concurrent local adds from being dropped).
-      if (Array.isArray(this.highlights[path5])) {
-        if (!disk[path5]) disk[path5] = [];
-        const seen = new Set(disk[path5].map((h) => h.id));
-        for (const h of this.highlights[path5]) if (!seen.has(h.id)) disk[path5].push(h);
-      }
-      this.highlights = disk;
-      this._backupHighlights(path5, disk[path5] || []);
-      await this._saveHighlightsToVault();
-      await this._saveLocalData();
-    }).catch((e) => console.error("Elton Reader: highlight persist failed", e));
+      if (path5) this._backupHighlights(path5, disk[path5] || []);
+      // Only the queued operation is applied; never resurrect records from a
+      // stale intermediate memory snapshot after a second deletion.
+      await this._writeRecord(file, disk);
+      if (this._hlPending === 1) this.highlights = disk;
+      await this._writeRescue(true);
+      if (!await this._saveLocalData()) throw new Error("Local backup save failed");
+      return true;
+    }).catch(error => {
+      console.error("Curd Reader: highlight persist failed", error);
+      new Notice(__ertr("Не удалось сохранить выделения. Исходный файл оставлен для восстановления."));
+      return false;
+    }).finally(() => { this._hlPending--; });
     return this._hlChain;
   }
+
   // Rolling local snapshots of a book's highlights (kept in data.json), so an
   // accidental loss/overwrite can always be restored on this device.
   _backupHighlights(path5, list) {
     if (!this.highlightsBackups) this.highlightsBackups = {};
     const arr = this.highlightsBackups[path5] || (this.highlightsBackups[path5] = []);
     const now = Date.now();
-    const sig = list.map((h) => h.id).sort().join(",");
+    const sig = JSON.stringify([...list].sort((a, b) => a.id.localeCompare(b.id)));
     const last = arr[arr.length - 1];
     if (last && last.sig === sig) { last.ts = now; return; }
     arr.push({ ts: now, count: list.length, sig, items: JSON.parse(JSON.stringify(list)) });
@@ -2235,7 +2400,14 @@ const Paginator = class {
     this.sw = 0;  // stride per spread in px (float)
   }
   /** Build the paginator. Returns [currentSpread, totalSpreads]. */
-  async build(container, html, settings, savedSpread) {
+  build(container, html, settings, savedSpread) {
+    const operation = () => this._build(container, html, settings, savedSpread).finally(() => { this._building = false; });
+    this._buildChain = (this._buildChain || Promise.resolve()).catch(() => {}).then(operation);
+    return this._buildChain;
+  }
+  async _build(container, html, settings, savedSpread) {
+    this._layoutVersion = (this._layoutVersion || 0) + 1;
+    this._cachedBlocks = null; this._orderedBlocks = null;
     // Книга уже стоит в этом контейнере и текст тот же — значит перекладка, а не
     // открытие: узлы (и отрисованные страницы PDF вместе с ними) остаются на
     // месте, меняются только геометрия и стили потока.
@@ -2244,7 +2416,6 @@ const Paginator = class {
       && this.clip.parentElement === container
       && this._html === html);
     if (!переклад) container.empty();
-    const t = erTheme(settings);
     // Vertical placement is decided per spread from real geometry, so both the
     // setting and the measurements are reset whenever the book is re-laid out.
     this._vAlign = settings.vAlign || "top";
@@ -2258,6 +2429,9 @@ const Paginator = class {
     // reads a position — progress, the contents list, highlights, search —
     // speaks in spreads and block indices, so the scrolling mode presents the
     // same surface. A "spread" here is one screenful.
+    if (this._scrollListener && this.clip) this.clip.removeEventListener("scroll", this._scrollListener);
+    window.clearTimeout(this._scrollT);
+    this._building = true;
     this.scrollMode = (settings.readMode || "pages") === "scroll";
     // Remembered here so applyTransform can honour it on every turn without
     // reaching back into the plugin's settings.
@@ -2274,7 +2448,7 @@ const Paginator = class {
     // `transition:none` that silently killed the page-turn animation. Overflow is
     // decided in the stylesheet: hidden on .er-clip, auto on .er-clip-scroll.
     this.clip.style.cssText = `flex:1;align-self:stretch;position:relative;min-width:0;min-height:0;`;
-    if (this.scrollMode) this.clip.addClass("er-clip-scroll");
+    this.clip.toggleClass("er-clip-scroll", this.scrollMode);
     await new Promise(r => window.requestAnimationFrame(r));
     await new Promise(r => window.requestAnimationFrame(r));
     // On mobile the view may not have final dimensions yet — wait an extra tick
@@ -2335,6 +2509,7 @@ const Paginator = class {
 
     /* 3. Flow element */
     this.flow = переклад ? this.flow : this.clip.createDiv("er-flow");
+    if (!this.flow.dataset.erFlow) this.flow.dataset.erFlow = "f" + Math.random().toString(36).slice(2);
     this.flow.style.cssText = `
       width:${flowW}px;
       /* Scrolling: the text is as tall as it needs to be and the clip scrolls,
@@ -2380,7 +2555,7 @@ const Paginator = class {
        nothing from the file can arrive here as markup. The <style> block is
        interpolated from our own numbers (font size, padding, theme colours),
        never from anything a book or a reader typed. */
-    const markup = `<style>
+    const markup = `<style data-er-layout>
 .er-flow p{text-align:${settings.textAlign || "left"}}
 /* Fragmentation. A column must fill to its last line; if the next paragraph
    cannot be split, the whole paragraph jumps to the next column and leaves a
@@ -2455,18 +2630,25 @@ const Paginator = class {
     // в innerHTML там, где в неё попадает содержимое файла. Разметка у нас и так
     // своя (см. пояснение выше), однако проверке это не объяснить, а спорить
     // с ней дороже, чем разобрать строку в узлы.
-    if (!переклад) {
+    {
     const parsed = new DOMParser().parseFromString(markup, "text/html");
-    this.flow.empty();
+    if (!переклад) this.flow.empty();
+    else this.flow.querySelector("style[data-er-layout]")?.remove();
     // ВАЖНО: разбор уносит ведущий <style> в head, а не в body. Первая версия
     // переносила только body — и книга оставалась вообще без своей вёрстки:
     // пропадали отступы (а с ними ограничение ширины строки), выключка и
     // правила разбиения на колонки. Ошибка тихая: книга при этом открывается.
+    for (const style of parsed.querySelectorAll("style[data-er-layout]")) {
+      style.textContent = style.textContent.replace(/\.er-flow(?=[ ,>.{:])/g, `[data-er-flow="${this.flow.dataset.erFlow}"]`);
+    }
     const узлы = [...Array.from(parsed.head.childNodes), ...Array.from(parsed.body.childNodes)];
+    let appended = 0;
     for (const node of узлы) {
-      this.flow.appendChild(document.importNode(node, true));
+      if (!переклад || node.nodeName === "STYLE") this.flow.appendChild(docOf(this.flow).importNode(node, true));
+      if (++appended % 20 === 0) await new Promise(resolve => winOf(this.flow).setTimeout(resolve, 0));
     }
     this._html = html;
+    this._cachedBlocks = null; this._orderedBlocks = null;
     }
 
     /* 4. Two rAF: first inserts DOM, second completes multicol layout */
@@ -2550,16 +2732,18 @@ const Paginator = class {
       //
       // Debounced: a scroll fires continuously, and re-reading the position on
       // every frame would make the reading itself stutter.
-      this.clip.addEventListener("scroll", () => {
+      this._scrollListener = () => {
         window.clearTimeout(this._scrollT);
         this._scrollT = window.setTimeout(() => {
           const h = this.clip.clientHeight || 1;
           const at = Math.max(0, Math.min(Math.round(this.clip.scrollTop / h), this.total - 1));
-          if (at === this.spread) return;
+          if (this._building) return;
           this.spread = at;
           if (this.onSpreadChange) this.onSpreadChange(at, this.total);
         }, 140);
-      }, { passive: true });
+      };
+      this.clip.addEventListener("scroll", this._scrollListener, { passive: true });
+      this._building = false;
       return [this.spread, this.total];
     }
 
@@ -2598,7 +2782,7 @@ const Paginator = class {
       const endX = endEl ? endEl.getBoundingClientRect().left - fRect2.left : 0;
       if (endEl && Math.abs(endX - (nPhys - 1) * slot) > 1) {
         this._colX = /* @__PURE__ */ new Map();
-        for (const el of this.flow.querySelectorAll("p,h1,h2,h3,h4")) {
+        for (const el of readerBlocks(this.flow)) {
           const x = el.getBoundingClientRect().left - fRect2.left;
           const k = Math.round(x / slot);
           // Keep the smallest offset seen for a column: blocks indented by margin
@@ -2611,6 +2795,7 @@ const Paginator = class {
     this.spread = Math.max(0, Math.min(savedSpread, this.total - 1));
     this.flow.toggleClass("er-flow-anim", this.animate !== false);
     this.applyTransform(false);
+    this._building = false;
     return [this.spread, this.total];
   }
   // How far down to nudge the page so a short spread isn't stranded at the top.
@@ -2730,53 +2915,67 @@ const Paginator = class {
   // ── Content anchor (device-independent reading position) ──────────────
   // All p/h blocks in reading (column-fill) order. The SAME sequence exists on
   // phone and PC, so a block's global index pins the exact reading spot.
-  _blocks() { return this.flow ? this.flow.querySelectorAll("p,h1,h2,h3,h4") : []; }
+  _blocks() {
+    if (!this.flow) return [];
+    if (this._blocksFlow !== this.flow || !this._cachedBlocks) { this._blocksFlow = this.flow; this._cachedBlocks = readerBlocks(this.flow); this._orderedBlocks = null; }
+    return this._cachedBlocks;
+  }
   // First block at or below the top of the visible area, while scrolling.
   // Binary search rather than a walk: on a long book the walk is thousands of
   // rect reads on every scroll settle, and this runs on every saved position.
-  _blockIndexAtScroll() {
+  _positionIndex(vertical) {
     const blocks = this._blocks();
-    if (!blocks.length || !this.clip) return 0;
-    const fTop = this.flow.getBoundingClientRect().top;
-    const want = this.clip.scrollTop - 2;
-    const topAt = (i) => blocks[i].getBoundingClientRect().top - fTop;
-    let lo = 0, hi = blocks.length - 1, ans = 0;
+    if (!blocks.length || !this.flow) return 0;
+    const rect = this.flow.getBoundingClientRect();
+    const want = vertical ? this.clip.scrollTop : this._spreadOffset();
+    const ordered = this._orderedBlocks || (this._orderedBlocks = blocks.map((el, index) => ({ el, index })).sort((a, b) => {
+      const pos = a.el.compareDocumentPosition(b.el);
+      return pos & 4 ? -1 : pos & 2 ? 1 : 0;
+    }));
+    let lo = 0, hi = ordered.length - 1, answer = hi;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (topAt(mid) >= want) { ans = mid; hi = mid - 1; } else lo = mid + 1;
+      const r = ordered[mid].el.getBoundingClientRect();
+      const at = vertical ? r.top - rect.top : r.left - rect.left;
+      if (at >= want - 2) { answer = mid; hi = mid - 1; } else lo = mid + 1;
     }
-    return ans;
+    return ordered[answer].index;
   }
-  // Global index of the first block at the current spread's left edge. x grows
-  // monotonically with DOM order under column-fill, so binary-search it.
-  currentBlockIndex() {
-    if (this.scrollMode) return this._blockIndexAtScroll();
-    const blocks = this._blocks();
-    if (!blocks.length || !this.sw) return 0;
-    const fLeft = this.flow.getBoundingClientRect().left;
-    // Same anchored offset the transform uses, so "what is on screen" and "where
-    // we scrolled to" can never disagree.
-    const winLeft = this._spreadOffset() - 2;
-    const xat = (i) => blocks[i].getBoundingClientRect().left - fLeft;
-    let lo = 0, hi = blocks.length - 1, ans = blocks.length - 1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (xat(mid) >= winLeft) { ans = mid; hi = mid - 1; } else lo = mid + 1;
+  _blockIndexAtScroll() { return this._positionIndex(true); }
+  currentBlockIndex() { return this._positionIndex(this.scrollMode); }
+  jumpToElement(el) {
+    if (!el || !this.flow?.contains(el)) return [this.spread, this.total];
+    if (this.scrollMode) {
+      const top = el.getBoundingClientRect().top - this.flow.getBoundingClientRect().top;
+      const limit = Math.max(0, this.clip.scrollHeight - this.clip.clientHeight);
+      const target = Math.max(0, Math.min(top, limit));
+      this.clip.scrollTo({ top: target, behavior: "instant" });
+      this.spread = Math.max(0, Math.min(Math.floor(target / (this.clip.clientHeight || 1)), this.total - 1));
+      return [this.spread, this.total];
     }
-    return ans;
+    const x = el.getBoundingClientRect().left - this.flow.getBoundingClientRect().left;
+    const col = Math.round(x / (this.sw / (this.cols || 1)));
+    return this.jumpTo(Math.floor(col / (this.cols || 1)));
   }
+  jumpToBlock(index) { return this.jumpToElement(this.blockEl(index)); }
+  destroy() {
+    window.clearTimeout(this._scrollT);
+    if (this.clip && this._scrollListener) this.clip.removeEventListener("scroll", this._scrollListener);
+    this._scrollListener = null;
+  }
+
   // Spread that contains the block with the given global index.
   spreadForBlock(idx) {
     if (this.scrollMode) {
       const blocks = this._blocks();
-      if (!blocks.length || idx < 0) return 0;
+      if (!blocks.length || !Number.isInteger(idx) || idx < 0) return 0;
       const el = blocks[Math.min(idx, blocks.length - 1)];
       const top = el.getBoundingClientRect().top - this.flow.getBoundingClientRect().top;
       const viewH = this.clip.clientHeight || 1;
       return Math.max(0, Math.min(Math.floor(top / viewH), this.total - 1));
     }
     const blocks = this._blocks();
-    if (!blocks.length || !this.sw || idx < 0) return 0;
+    if (!blocks.length || !this.sw || !Number.isInteger(idx) || idx < 0) return 0;
     const el = blocks[Math.min(idx, blocks.length - 1)];
     const x = el.getBoundingClientRect().left - this.flow.getBoundingClientRect().left;
     // Via the column index rather than raw division: the stride is a float, and
@@ -2787,7 +2986,7 @@ const Paginator = class {
   // The block element for the given global index (for the resume flash).
   blockEl(idx) {
     const blocks = this._blocks();
-    if (!blocks.length) return null;
+    if (!blocks.length || !Number.isInteger(idx) || idx < 0) return null;
     return blocks[Math.min(Math.max(0, idx), blocks.length - 1)] || null;
   }
   get currentSpread() {
@@ -2800,36 +2999,64 @@ const Paginator = class {
     return this.total;
   }
 };
-async function extractEpub(file, app) {
-  const buf = await app.vault.readBinary(file);
+async function extractEpub(file, app, { signal, onProgress } = {}) {
+  checkAbort(signal);
+  const buf = await bounded(app.vault.readBinary(file), 60000, { signal });
+  checkAbort(signal);
   const book = ePub(buf);
-  await book.ready;
-  const spineItems = book.spine.spineItems;
-  const parts = [];
-  for (const item of spineItems) {
-    try {
-      const doc = await item.load(book.load.bind(book));
-      const body = doc.querySelector?.("body") ?? doc;
-      const imgs = Array.from(body.querySelectorAll?.("img") ?? []);
-      for (const img of imgs) {
-        const src = img.getAttribute("src");
-        if (!src || src.startsWith("data:")) continue;
-        try {
-          const itemDir = (item.url || "").split("/").slice(0, -1).join("/");
-          const resolved = src.startsWith("/") ? src : (itemDir ? itemDir + "/" + src : "/" + src).replace(/\/\.?\//g, "/");
-          const dataUrl = await book.archive.getBase64(resolved);
-          if (dataUrl) img.setAttribute("src", dataUrl);
-        } catch { /* optional step; a failure here must not interrupt reading */ }
+  const parts = [], failures = [];
+  try {
+    await bounded(book.ready, 60000, { signal, cancel: () => book.destroy() });
+    const items = book.spine.spineItems;
+    for (const [index, item] of items.entries()) {
+      checkAbort(signal);
+      onProgress?.(index + 1, items.length);
+      try {
+        const doc = await bounded(item.load(book.load.bind(book)), 30000, { signal });
+        doc.__erBase = item.url || book.resolve(item.href);
+        (doc.ownerDocument || doc).__erBase = doc.__erBase;
+        const body = doc.querySelector?.("body") ?? doc;
+        for (const img of body.querySelectorAll?.("img,svg image") || []) {
+          const src = img.getAttribute("src") || img.getAttribute("href") || img.getAttribute("xlink:href");
+          if (!src || src.startsWith("data:")) continue;
+          try {
+            const resolved = archivePath(src, doc.__erBase);
+            if (!resolved) throw new Error("External book images are not loaded automatically");
+            const data = await bounded(book.archive.getBase64("/" + resolved), 15000, { signal });
+            if (data) { img.setAttribute("src", data); img.setAttribute("href", data); }
+          } catch (error) {
+            checkAbort(signal);
+            console.warn("Curd Reader: image unavailable", src, error);
+            img.removeAttribute("src"); img.removeAttribute("href"); img.removeAttribute("xlink:href");
+          }
+        }
+        const html = nodeToHtml(body);
+        const id = epubAddress(doc.__erBase);
+        if (html.trim()) parts.push(`<div class="er-section" data-er-id="${escHtml(id)}">${html}</div>`);
+      } catch (error) {
+        checkAbort(signal);
+        failures.push(item.href || String(index + 1));
+        console.warn("Curd Reader: chapter unavailable", item.href, error);
+      } finally { item.unload(); }
+      // Release the UI between chapters, including cancellation/close events.
+      await new Promise(resolve => window.setTimeout(resolve, 0));
+    }
+    const links = [];
+    const walk = (nodes, level = 0) => {
+      for (const node of nodes || []) {
+        const ref = epubAddress(book.resolve(node.href || ""));
+        if (node.href && ref) links.push(`<a data-er-target="${escHtml(ref)}" data-er-level="${level}">${escHtml(node.label || "")}</a>`);
+        walk(node.subitems, level + 1);
       }
-      const html = nodeToHtml(body);
-      if (html.trim())
-        parts.push(`<div class="er-section">${html}</div>`);
-      item.unload();
-    } catch { /* a chapter that will not parse is skipped, not fatal */ }
-  }
-  book.destroy();
-  return parts.join("\n");
+    };
+    walk(book.navigation?.toc);
+    if (links.length) parts.unshift(`<nav data-er-toc hidden>${links.join("\n")}</nav>`);
+    if (failures.length) new Notice(__ertr("Не удалось загрузить главы: {0}", failures.join(", ")), 12000);
+    if (!parts.some(part => part.includes("er-section"))) throw new Error("EPUB has no readable chapters");
+    return parts.join("\n");
+  } finally { book.destroy(); }
 }
+
 // ── Translation ───────────────────────────────────────────────────────────────
 // Translate a fragment through Google's public keyless endpoint.
 //
@@ -2841,7 +3068,7 @@ async function extractEpub(file, app) {
 //
 // This endpoint is free and needs no key, but it's unofficial and rate-limited:
 // it is meant for selections, not for translating a whole book.
-async function translateText(text, to = "ru") {
+async function translateText(text, to = "ru", signal) {
   const q = (text || "").replace(/\s+/g, " ").trim();
   if (!q) return "";
   const MAX = 1600;
@@ -2864,7 +3091,7 @@ async function translateText(text, to = "ru") {
     // collapsed every failure into one "you need internet" message, which is
     // what a tablet reader saw while plainly being online: the real answer was
     // Google rate-limiting the free endpoint.
-    const res = await requestUrl({ url, method: "GET", throw: false });
+    const res = await bounded(requestUrl({ url, method: "GET", throw: false }), 30000, { signal });
     if (res.status === 429 || res.status === 503) {
       const err = new Error("translate rate-limited");
       err.erReason = "limit";
@@ -2956,7 +3183,7 @@ function aiMessages(text, settings, turns, book) {
   });
   return msgs;
 }
-async function aiExplain(text, settings, turns, book) {
+async function aiExplain(text, settings, turns, book, signal) {
   const cfg = aiConfig(settings);
   if (cfg.needsKey && !cfg.key) {
     const err = new Error("no api key");
@@ -2965,7 +3192,7 @@ async function aiExplain(text, settings, turns, book) {
   }
   const headers = { "Content-Type": "application/json" };
   if (cfg.key) headers.Authorization = `Bearer ${cfg.key}`;
-  const res = await requestUrl({
+  const res = await bounded(requestUrl({
     url: `${cfg.base}/chat/completions`,
     method: "POST",
     headers,
@@ -2976,7 +3203,7 @@ async function aiExplain(text, settings, turns, book) {
       temperature: 0.2,
       max_tokens: 900,
     }),
-  });
+  }), 60000, { signal });
   if (res.status === 401 || res.status === 403) {
     const err = new Error("auth"); err.erReason = "auth"; throw err;
   }
@@ -3029,10 +3256,13 @@ const TranslateModal = class extends Modal {
     outEl.setText(__ertr("Переводим…"));
     let tr = "";
     try {
-      tr = await translateText(this.text, this.plugin.settings.translateTo || "ru");
+      this._requestController = new AbortController();
+      tr = await translateText(this.text, this.plugin.settings.translateTo || "ru", this._requestController.signal);
+      checkAbort(this._requestController.signal);
       outEl.setText(tr || __ertr("Пустой ответ переводчика"));
     } catch (e) {
-      console.error("Elton Reader: translate failed", e);
+      if (e.name === "AbortError") return;
+      console.error("Curd Reader: translate failed", e);
       const why = e && e.erReason;
       outEl.setText(
         why === "limit"
@@ -3057,7 +3287,7 @@ const TranslateModal = class extends Modal {
         this.close();
       }));
   }
-  onClose() { this.contentEl.empty(); }
+  onClose() { this._requestController?.abort(); this.contentEl.empty(); }
 };
 // Is the reader running on a phone/tablet? Platform is the modern API; app.isMobile
 // is the long-standing fallback, so a missing Platform never breaks the reader.
@@ -3102,7 +3332,7 @@ function erBlurOnTapOutside(root, field) {
     if (t === field) return;
     // Своя строка ввода (поле + кнопка отправки) не считается «мимо»: нажатие
     // на «отправить» не должно закрывать клавиатуру раньше самой отправки.
-    if (t instanceof HTMLElement && t.closest(".er-ai-bar, .er-find-bar, input, textarea")) return;
+    if (t?.nodeType === 1 && t.closest(".er-ai-bar, .er-find-bar, input, textarea")) return;
     if (docOf(field).activeElement === field) field.blur();
   });
 }
@@ -3234,7 +3464,7 @@ async function createNoteFromPdfPage(view, pageNo, btn) {
     // A scanned page has no paragraph to anchor to, so the backlink points at
     // the page — still one click from the note back to where it came from.
     const back = plugin.settings.quoteBacklinks !== false
-      ? ` [${backlinkLabel(plugin)}](obsidian://elton-reader?book=${encodeURIComponent(file.path)}&page=${pageNo})`
+      ? ` [${backlinkLabel(plugin)}](obsidian://curd-reader?book=${encodeURIComponent(file.path)}&page=${pageNo})`
       : "";
     const body = `${quote}\n\n${__ertr("— из [[{0}]], стр. {1}", linkName, pageNo)}${back}\n`;
     await resolveNotesFolder(app, folderOverride);
@@ -3246,7 +3476,7 @@ async function createNoteFromPdfPage(view, pageNo, btn) {
       await openNoteBesideBook(app, plugin, note);
     }
   } catch (e) {
-    console.error("Elton Reader: note from PDF page failed", e);
+    console.error("Curd Reader: note from PDF page failed", e);
     new Notice(__ertr("Не удалось создать заметку"));
   }
 }
@@ -3258,25 +3488,22 @@ async function createNoteFromPdfPage(view, pageNo, btn) {
 function followFootnote(view, ref) {
   const flow = view.pager && view.pager.flow;
   if (!flow || !ref) return false;
-  const target = flow.querySelector(`[data-er-id="${CSS.escape(ref)}"]`);
+  const target = [...flow.querySelectorAll("[data-er-id]")].find(el => el.getAttribute("data-er-id") === ref);
   if (!target) return false;
-  const from = view.pager.currentSpread;
+  const from = { spread: view.pager.currentSpread, top: view.pager.scrollMode ? view.pager.clip.scrollTop : null };
   // Прыжок считается по номеру абзаца, а не по координате на экране.
   //
   // Раньше место сноски мерилось сдвигом слева — это верно, только пока текст
   // разложен колонками. В режиме «прокруткой» ничего не сдвинуто по горизонтали,
   // сдвиг у любой сноски выходил нулевым, и переход по ссылке уносил в самое
   // начало книги. Номер абзаца одинаково работает в обоих режимах.
-  const blocks = Array.from(flow.querySelectorAll("p,h1,h2,h3,h4"));
-  const owner = (target.closest && target.closest("p,h1,h2,h3,h4"))
-    || (target.querySelector && target.querySelector("p,h1,h2,h3,h4"))
-    || target;
+  const blocks = Array.from(readerBlocks(flow));
+  const owner = blockOwner(target, flow);
   const idx = blocks.indexOf(owner);
   // Абзац не нашёлся — лучше не делать ничего, чем увозить читателя на первую
   // страницу: клик просто останется без последствий.
   if (idx < 0) return false;
-  const spread = view.pager.spreadForBlock(idx);
-  const [cur, tot] = view.pager.jumpTo(spread);
+  const [cur, tot] = view.pager.jumpToElement(target);
   (view.updateUI || view._updateUI).call(view, cur, tot);
   showFootnoteReturn(view, from);
   return true;
@@ -3290,7 +3517,8 @@ function showFootnoteReturn(view, spread) {
   pill.setAttribute("role", "button");
   pill.setAttribute("tabindex", "0");
   const go = () => {
-    const [cur, tot] = view.pager.jumpTo(spread);
+    const [cur, tot] = view.pager.jumpTo(typeof spread === "object" ? spread.spread : spread);
+    if (spread.top !== null && spread.top !== undefined) view.pager.clip.scrollTo({ top: spread.top, behavior: "instant" });
     (view.updateUI || view._updateUI).call(view, cur, tot);
     hideFootnoteReturn(view);
   };
@@ -3452,9 +3680,10 @@ function addMoreBtn(view, pop) {
       const ok = md && await copyToClipboard(md);
       new Notice(ok ? __ertr("Цитата скопирована ✓ — вставьте в любую заметку") : __ertr("Не удалось скопировать"));
     }));
-    menu.addItem((it) => it.setTitle(__ertr("Остановился здесь")).setIcon("bookmark").onClick(() => {
+    menu.addItem((it) => it.setTitle(__ertr("Остановился здесь")).setIcon("bookmark").onClick(async () => {
       if (!view.file) return;
-      const pct = view.plugin.saveNow(view.file.path, view.pager.spread, view.pager.total, cur.block);
+      const pct = await view.plugin.saveNow(view.file.path, view.pager.spread, view.pager.total, cur.block);
+      if (pct === null) return;
       new Notice(__ertr("Закладка «остановился здесь» — {0}%", (pct)));
       if (view.panelOpen === "settings" && typeof view._renderHistory === "function") view._renderHistory();
     }));
@@ -3468,9 +3697,16 @@ function addMoreBtn(view, pop) {
         if (text === null) return;
         // Commenting on a plain selection turns it INTO a highlight first: a
         // comment has to hang on something.
-        if (!id && pending) id = view._createHighlight(pending, view.plugin.settings.defaultHlColor || HL_COLORS[0].id);
-        if (!id) { new Notice(__ertr("Не удалось сохранить комментарий")); return; }
-        await view.plugin.setHighlightComment(view.file.path, id, cur, text);
+        const ids = id ? [id] : [];
+        if (!id && pending) {
+          const group = "g" + Date.now().toString(36);
+          for (const part of pending.parts || [pending]) {
+            const made = view._createHighlight({ ...part, group }, view.plugin.settings.defaultHlColor || HL_COLORS[0].id);
+            if (made) ids.push(made);
+          }
+        }
+        if (!ids.length) { new Notice(__ertr("Не удалось сохранить комментарий")); return; }
+        for (const highlightId of ids) await view.plugin.setHighlightComment(view.file.path, highlightId, cur, text);
         view._renderFlowHighlights();
         erRefreshHlPanel(view);
         erOpenHlPanel(view);
@@ -3644,9 +3880,12 @@ const AiExplainModal = class extends Modal {
     this._scroll();
     let answer = "";
     try {
-      answer = await aiExplain(this.text, this.plugin.settings, this.turns, this.book);
+      this._requestController = new AbortController();
+      answer = await aiExplain(this.text, this.plugin.settings, this.turns, this.book, this._requestController.signal);
+      checkAbort(this._requestController.signal);
     } catch (e) {
-      console.error("Book Reader: AI chat failed", e);
+      if (e.name === "AbortError") { this.busy = false; return false; }
+      console.error("Curd Reader: AI chat failed", e);
       // The unanswered message leaves the thread: keeping it would send the same
       // question twice as soon as the next one is asked.
       this.turns.pop();
@@ -3675,6 +3914,7 @@ const AiExplainModal = class extends Modal {
     return true;
   }
   onClose() {
+    this._requestController?.abort();
     if (this._kbShow) {
       window.removeEventListener("keyboardWillShow", this._kbShow);
       window.removeEventListener("keyboardDidShow", this._kbShow);
@@ -3727,6 +3967,8 @@ function fb2Inline(el) {
     if (node.nodeType !== 1) continue;
     const t = (node.tagName || "").toLowerCase();
     const inner = fb2Inline(node);
+    const nodeId = node.getAttribute("id");
+    if (nodeId) out += `<span data-er-id="${escHtml(nodeId)}"></span>`;
     if (t === "emphasis") out += `<i>${inner}</i>`;
     else if (t === "strong") out += `<b>${inner}</b>`;
     else if (t === "strikethrough") out += `<s>${inner}</s>`;
@@ -3735,7 +3977,7 @@ function fb2Inline(el) {
     else if (t === "code") out += `<code>${inner}</code>`;
     else if (t === "a") {
       const ref = fb2Href(node);
-      out += ref ? `<a class="er-fb2-ref" data-er-ref="${escHtml(ref)}">${inner}</a>` : inner;
+      out += ref ? `<a class="er-fb2-ref" data-er-ref="${escHtml(ref)}" role="button" tabindex="0">${inner}</a>` : inner;
     } else out += inner;
   }
   return out;
@@ -3757,13 +3999,13 @@ function fb2MergeCode(out) {
       block = null;
       return;
     }
-    const body = block.join("\n");
-    if (body.trim()) html.push(`<pre class="er-code"><code>${escHtml(body)}</code></pre>`);
+    const body = block.map(line => `<span${line.id ? ` data-er-id="${escHtml(line.id)}"` : ""}>${escHtml(line.codeLine)}</span>`).join("\n");
+    if (body.trim()) html.push(`<pre class="er-code"><code>${body}</code></pre>`);
     block = null;
   };
   for (const item of out) {
     if (item && typeof item === "object" && typeof item.codeLine === "string") {
-      (block || (block = [])).push(item.codeLine);
+      (block || (block = [])).push(item);
       continue;
     }
     flush();
@@ -3772,31 +4014,34 @@ function fb2MergeCode(out) {
   flush();
   return html;
 }
-function fb2Node(el, images, out) {
+function fb2Node(el, images, out, depth = 1) {
+  const id = el.getAttribute?.("id");
+  const idAttr = id ? ` data-er-id="${escHtml(id)}"` : "";
   const tag = (el.tagName || "").toLowerCase();
   if (tag === "title") {
     const t = (el.textContent || "").replace(/\s+/g, " ").trim();
-    if (t) out.push(`<h2>${escHtml(t)}</h2>`);
+    const level = Math.min(6, Math.max(2, depth));
+    if (t) out.push(`<h${level}${idAttr}>${escHtml(t)}</h${level}>`);
     return;
   }
   if (tag === "subtitle") {
     const t = (el.textContent || "").replace(/\s+/g, " ").trim();
-    if (t) out.push(`<h3>${escHtml(t)}</h3>`);
+    if (t) out.push(`<h${Math.min(6, depth + 1)}${idAttr}>${escHtml(t)}</h${Math.min(6, depth + 1)}>`);
     return;
   }
   if (tag === "p" || tag === "v" || tag === "text-author") {
     if (tag === "p" && fb2IsCodeLine(el)) {
-      out.push({ codeLine: (el.textContent || "").replace(/\s+$/, "") });
+      out.push({ id, codeLine: (el.textContent || "").replace(/\s+$/, "") });
       return;
     }
     const raw = (el.textContent || "").replace(/\s+/g, " ").trim();
     const toc = tocLineHtml(raw);
     if (toc) {
-      out.push(toc);
+      out.push(idAttr ? `<div${idAttr}>${toc}</div>` : toc);
       return;
     }
     const inner = fb2Inline(el);
-    if (inner.trim()) out.push(`<p>${inner}</p>`);
+    if (inner.trim()) out.push(`<p${idAttr}>${inner}</p>`);
     return;
   }
   if (tag === "empty-line") return;
@@ -3806,10 +4051,14 @@ function fb2Node(el, images, out) {
     return;
   }
   if (tag === "binary" || tag === "description") return;
-  for (const child of Array.from(el.children || [])) fb2Node(child, images, out);
+  if (idAttr) out.push(`<div${idAttr}>`);
+  for (const child of Array.from(el.children || [])) fb2Node(child, images, out, tag === "section" ? depth + 1 : depth);
+  if (idAttr) out.push("</div>");
 }
-async function extractFb2(file, app) {
-  const buf = await app.vault.readBinary(file);
+async function extractFb2(file, app, signal) {
+  checkAbort(signal);
+  const buf = await bounded(app.vault.readBinary(file), 60000, { signal });
+  checkAbort(signal);
   const bytes = new Uint8Array(buf);
   if (bytes[0] === 80 && bytes[1] === 75) {
     new Notice(__ertr("Этот FB2 упакован в ZIP. Распакуйте архив и положите в хранилище сам файл .fb2."), 8e3);
@@ -3836,32 +4085,37 @@ async function extractFb2(file, app) {
       let out = [];
       fb2Node(child, images, out);
       const html = fb2MergeCode(out).join("\n");
-      const secId = child.getAttribute && child.getAttribute("id");
-      const idAttr = secId ? ` data-er-id="${escHtml(secId)}"` : "";
-      if (html.trim()) parts.push(`<div class="er-section"${idAttr}>${html}</div>`);
+      if (html.trim()) parts.push(`<div class="er-section">${html}</div>`);
     }
   }
   if (!parts.length) throw new Error("FB2 has no readable text");
   return parts.join("\n");
 }
-async function extractPdf(file, app, settings = {}, onProgress) {
+async function extractPdf(file, app, settings = {}, onProgress, signal) {
   await setupWorker(app);
   const alsoFigOnText = settings.pdfShowFiguresOnTextPages === true;
-  const buf = await app.vault.readBinary(file);
-  const doc = await pdfjsLib.getDocument({
+  const buf = await bounded(app.vault.readBinary(file), 60000, { signal });
+  checkAbort(signal);
+  const task = pdfjsLib.getDocument({
       data: buf,
       // Книга — чужой файл. У pdf.js есть известная дыра, где специально
       // собранный шрифт выполняет свой код через eval; отключение eval —
       // штатное лечение от неё (CVE-2024-4367). На вёрстку не влияет.
+      ...pdfResources(app),
       isEvalSupported: false,
-    }).promise;
+    });
+  let keep = false;
+  try {
+  const doc = await bounded(task.promise, 60000, { signal, cancel: () => { task.destroy().catch(() => {}); } });
   const total = doc.numPages;
   const parts = [];
   const figRects = {};
   for (let i = 1; i <= total; i++) {
+    checkAbort(signal);
+    if (i % 4 === 0) await new Promise(resolve => window.setTimeout(resolve, 0));
     if (onProgress && (i === 1 || i % 4 === 0 || i === total)) onProgress(i, total);
-    const page = await doc.getPage(i);
-    const tc = await page.getTextContent();
+    const page = await bounded(doc.getPage(i), 15000, { signal });
+    const tc = await bounded(page.getTextContent(), 30000, { signal });
     pdfFixShiftedCyrillic(tc.items);
     const textLen = tc.items.reduce((n, it) => n + (typeof it.str === "string" ? it.str.replace(/\s+/g, "").length : 0), 0);
     const view = page.view || [0, 0, 612, 792];
@@ -3871,12 +4125,12 @@ async function extractPdf(file, app, settings = {}, onProgress) {
     let html = textHtml;
     const brokenText = textLen >= 40 && pdfTextLooksUnreadable(tc.items);
     if (textLen < 40 || brokenText) {
-      const fig = await pdfFigureScore(page);
+      const fig = await bounded(pdfFigureScore(page), 15000, { signal });
       if (brokenText || fig && (fig.imgFrac >= 0.02 || fig.vectorOps >= 20 || fig.shading > 0)) {
         html = `<figure class="er-pdf-figure"><img class="er-pdf-page-img er-pdf-lazy" data-pdf-page="${i}" width="${pw}" height="${ph}" alt="">${pdfNoteBtn(i)}</figure>` + (brokenText ? "" : textHtml);
       }
     } else if (alsoFigOnText) {
-      const fig = await pdfFigureScore(page);
+      const fig = await bounded(pdfFigureScore(page), 15000, { signal });
       const picked = fig ? pdfPickFigures(fig.rects, view) : [];
       if (picked.length) {
         figRects[i] = picked;
@@ -3903,19 +4157,21 @@ async function extractPdf(file, app, settings = {}, onProgress) {
   try {
     const walk2 = async (nodes, level) => {
       for (const n of nodes || []) {
+        checkAbort(signal);
         let page = null;
         try {
-          const dest = typeof n.dest === "string" ? await doc.getDestination(n.dest) : n.dest;
-          if (Array.isArray(dest) && dest[0]) page = await doc.getPageIndex(dest[0]) + 1;
+          const dest = typeof n.dest === "string" ? await bounded(doc.getDestination(n.dest), 15000, { signal }) : n.dest;
+          if (Array.isArray(dest) && dest[0]) page = await bounded(doc.getPageIndex(dest[0]), 15000, { signal }) + 1;
         } catch { /* optional step; a failure here must not interrupt reading */ }
         const label = String(n.title || "").replace(/\s+/g, " ").trim();
         if (label && page) outline.push({ label, page, level });
         if (n.items && n.items.length) await walk2(n.items, level + 1);
       }
     };
-    await walk2(await doc.getOutline(), 0);
+    await bounded(walk2(await bounded(doc.getOutline(), 15000, { signal }), 0), 30000, { signal });
   } catch (e) {
-    console.warn("Book Reader: PDF outline unavailable", e);
+    checkAbort(signal);
+    console.warn("Curd Reader: PDF outline unavailable", e);
   }
   const lazy = {
     _doc: doc,
@@ -3953,7 +4209,7 @@ async function extractPdf(file, app, settings = {}, onProgress) {
     // Otherwise crop to one picture: the canvas is sized to the FIGURE and the
     // context shifted, so only that region lands on it — the reader sees the
     // illustration itself rather than a screenshot of the page around it.
-    async render(pageNum, rectIdx) {
+    async render(pageNum, rectIdx, renderDocument = document) {
       const page = await doc.getPage(pageNum);
       const base = page.getViewport({ scale: 1 });
       const r = rectIdx == null ? null : (this._rects[pageNum] || [])[rectIdx] || null;
@@ -3961,7 +4217,7 @@ async function extractPdf(file, app, settings = {}, onProgress) {
         const full = Math.max(1, Math.min(2, 1600 / Math.max(base.width, base.height, 1)));
         for (const [scale2, budget] of [[full, 15e3], [full / 2, 8e3]]) {
           const vp2 = page.getViewport({ scale: scale2 });
-          const cv2 = document.createElement("canvas");
+          const cv2 = renderDocument.createElement("canvas");
           cv2.width = Math.ceil(vp2.width);
           cv2.height = Math.ceil(vp2.height);
           const ctx2 = cv2.getContext("2d");
@@ -3984,7 +4240,7 @@ async function extractPdf(file, app, settings = {}, onProgress) {
       const left = Math.min(ax, bx), top = Math.min(ay, by);
       const cw = Math.max(1, Math.round(Math.abs(bx - ax)));
       const ch = Math.max(1, Math.round(Math.abs(by - ay)));
-      const cv = document.createElement("canvas");
+      const cv = renderDocument.createElement("canvas");
       cv.width = cw;
       cv.height = ch;
       const ctx = cv.getContext("2d");
@@ -4000,11 +4256,13 @@ async function extractPdf(file, app, settings = {}, onProgress) {
     },
     destroy() {
       try {
-        doc.destroy();
+        return task.destroy().catch(error => console.warn("Curd Reader: PDF cleanup failed", error));
       } catch { /* optional step; a failure here must not interrupt reading */ }
     }
   };
+  keep = true;
   return { html: parts.join("\n"), lazy, outline };
+  } finally { if (!keep) await task.destroy().catch(() => {}); }
 }
 function searchBookBlocks(blocks, query, limit = 300) {
   const q = String(query || "").trim().toLowerCase();
@@ -4037,28 +4295,35 @@ function markFoundIn(view, query) {
   const flow = view.pager && view.pager.flow;
   const q = String(query || "").trim().toLowerCase();
   if (!flow || q.length < 2) return;
-  if (typeof CSS === "undefined" || !CSS.highlights || typeof Highlight === "undefined") return;
+  const w = winOf(flow);
+  if (!w.CSS?.highlights || !w.Highlight) return;
   view._foundQuery = q;
   const ranges = [];
   const CAP = 2e3;
   try {
-    const walker = docOf(flow).createTreeWalker(flow, NodeFilter.SHOW_TEXT);
-    let node;
-    while ((node = walker.nextNode()) && ranges.length < CAP) {
-      const text = node.nodeValue || "";
-      const hay = text.toLowerCase();
-      let from = 0;
+    for (const block of readerBlocks(flow)) {
+      const walker = docOf(flow).createTreeWalker(block, NodeFilter.SHOW_TEXT);
+      const nodes = []; let node, text = "";
+      while ((node = walker.nextNode())) { nodes.push({node, start: text.length}); text += node.nodeValue || ""; }
+      // Keep a character map while normalizing whitespace, just like search.
+      let normalized = "", offsets = [];
+      for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        if (/\s/.test(char)) { if (!normalized || normalized.endsWith(" ")) continue; normalized += " "; }
+        else normalized += char;
+        offsets.push(i);
+      }
+      const hay = normalized.toLowerCase(); let from = 0;
       while (ranges.length < CAP) {
-        const at = hay.indexOf(q, from);
-        if (at < 0) break;
-        const r = docOf(flow).createRange();
-        r.setStart(node, at);
-        r.setEnd(node, at + q.length);
-        ranges.push(r);
+        const at = hay.indexOf(q, from); if (at < 0) break;
+        const start = offsets[at], end = offsets[at + q.length - 1] + 1;
+        const first = [...nodes].reverse().find(n => n.start <= start), last = [...nodes].reverse().find(n => n.start < end);
+        if (first && last) { const r = docOf(flow).createRange(); r.setStart(first.node, start-first.start); r.setEnd(last.node, end-last.start); ranges.push(r); }
         from = at + q.length;
       }
+      if (ranges.length >= CAP) break;
     }
-    if (ranges.length) CSS.highlights.set("er-found", new Highlight(...ranges));
+    if (ranges.length) w.CSS.highlights.set("er-found", new w.Highlight(...ranges));
     window.clearTimeout(view._foundTimer);
     view._foundTimer = window.setTimeout(() => clearFoundIn(view), FOUND_PAINT_MS);
   } catch { /* optional step; a failure here must not interrupt reading */ }
@@ -4067,7 +4332,7 @@ function clearFoundIn(view) {
   window.clearTimeout(view._foundTimer);
   view._foundQuery = "";
   try {
-    if (typeof CSS !== "undefined" && CSS.highlights) CSS.highlights.delete("er-found");
+    winOf(view.pager?.flow).CSS?.highlights?.delete("er-found");
   } catch { /* optional step; a failure here must not interrupt reading */ }
 }
 function buildFindPanelFor(view, p, { close, jump }) {
@@ -4103,7 +4368,7 @@ function buildFindPanelFor(view, p, { close, jump }) {
       clearFoundIn(view);
       return;
     }
-    info.setText(__ertr("Найдено: {0}. Слово подсвечено в тексте.", hits.length));
+    info.setText(hits.length >= 300 ? "Показаны первые 300 совпадений. Уточните запрос." : __ertr("Найдено: {0}. Слово подсвечено в тексте.", hits.length));
     markFoundIn(view, q);
     for (const h of hits) {
       const el = list.createDiv("er-toc-item er-find-item");
@@ -4134,64 +4399,54 @@ function buildFindPanelFor(view, p, { close, jump }) {
   });
 }
 function buildTocPanelFor(view, p, { close, jump }) {
+  view._tocWidget?.dispose();
   p.empty();
-  p.createDiv("er-pan-title").setText(__ertr("Содержание"));
   const items = view.tocItems || [];
-  if (!items.length) {
-    p.createDiv("er-toc-empty").setText(__ertr("В этой книге не нашлось ни оглавления, ни заголовков."));
-    return null;
-  }
-  let filter = "";
-  if (items.length > 12) {
-    const box = p.createDiv("er-toc-find");
-    const inp = box.createEl("input", { type: "text" });
-    inp.addClass("er-toc-find-input");
-    inp.placeholder = __ertr("Фильтр по названию…");
-    inp.addEventListener("input", () => {
-      filter = inp.value.trim().toLowerCase();
-      render();
-    });
-  }
-  const list = p.createDiv("er-toc-list");
-  const render = () => {
-    list.empty();
-    const cur = view.pager ? view.pager.spread : 0;
-    let shown = 0;
-    for (const item of items) {
-      if (filter && !item.label.toLowerCase().includes(filter)) continue;
-      shown++;
-      const el = list.createDiv("er-toc-item");
-      const row = el.createDiv("er-toc-row");
-      row.createSpan({ cls: "er-toc-label", text: item.label });
-      const spread = view.pager && view.pager.spreadForBlock ? view.pager.spreadForBlock(item.block) : null;
-      const bits = [];
-      if (item.page) bits.push(__ertr("стр. {0}", item.page));
-      if (typeof spread === "number") bits.push(__ertr("разв. {0}", spread + 1));
-      if (bits.length) row.createSpan({ cls: "er-toc-where", text: bits.join(" \xB7 ") });
-      if (item.level) el.style.paddingLeft = `${8 + item.level * 12}px`;
-      if (typeof spread === "number" && spread === cur) el.addClass("active");
-      el.addEventListener("click", () => {
-        close();
-        jump(item.block);
-      });
-    }
-    if (!shown) list.createDiv("er-toc-empty").setText(__ertr("Ничего не найдено"));
-  };
-  render();
-  return render;
+  if (view._tocState?.items !== items) view._tocState = { items, expanded: new Set(), filter: "" };
+  view._tocWidget = mountTocTree(p, items, {
+    state: view._tocState,
+    jump: item => { close(); if (item.page && view.ext === "pdf") view.jumpToPdfPageWhenReady(item.page); else jump(item.block); },
+    revision: () => view.pager?._layoutVersion || 0,
+    ready: () => !view._loading && !view.pager?._building,
+    currentItem: () => currentTocItem(view),
+    isOpen: () => view.panelOpen === "toc",
+    measure: item => ({ spread: Number.isInteger(item.block) ? view.pager?.spreadForBlock(item.block) : null }),
+  });
+  return view._tocWidget.render;
 }
-function chapterForBlock(toc, block) {
+function currentTocItem(view) {
+  const pager = view.pager;
+  if (!pager?.flow) return null;
+  const target = pager.blockEl(pager.currentBlockIndex());
+  if (!target) return null;
+  const page = Number(target.closest("[data-pdf-page-no]")?.getAttribute("data-pdf-page-no"));
+  let best = null, bestPage = 0;
+  for (const item of view.tocItems || []) {
+    if (view.ext === "pdf" && page && item.page) {
+      if (item.page <= page && item.page >= bestPage) { best = item; bestPage = item.page; }
+      continue;
+    }
+    const heading = pager.blockEl(item.block);
+    if (heading && (heading === target || heading.compareDocumentPosition(target) & 4)) {
+      const previous = best && pager.blockEl(best.block);
+      if (!previous || previous === heading || previous.compareDocumentPosition(heading) & 4) best = item;
+    }
+  }
+  return best;
+}
+function chapterForBlock(toc, block, flow) {
   if (!toc || !toc.length || typeof block !== "number") return "";
   let best = "";
+  const blocks = flow ? readerBlocks(flow) : null;
   for (const it of toc) {
-    if (it.block <= block) best = it.label;
-    else break;
+    const target = blocks?.[block], heading = blocks?.[it.block];
+    if (target && heading ? heading === target || !!(heading.compareDocumentPosition(target) & 4) : it.block <= block) best = it.label;
   }
   return best;
 }
 function pageForBlock(flow, block) {
   try {
-    const blocks = flow ? flow.querySelectorAll("p,h1,h2,h3,h4") : null;
+    const blocks = flow ? readerBlocks(flow) : null;
     const el = blocks && blocks[block];
     const holder = el && el.closest ? el.closest("[data-pdf-page-no]") : null;
     const p = holder ? parseInt(holder.getAttribute("data-pdf-page-no"), 10) : NaN;
@@ -4207,7 +4462,7 @@ function enrichHighlights(view, list) {
     if (typeof hl.block !== "number") return hl;
     return {
       ...hl,
-      chapter: hl.chapter || chapterForBlock(toc, hl.block),
+      chapter: hl.chapter || chapterForBlock(toc, resolveAnchor(flow, hl.anchor, hl.block), flow),
       page: hl.page || pageForBlock(flow, hl.block)
     };
   });
@@ -4226,7 +4481,7 @@ function currentBookPage(view) {
 function sendQuoteToBookNote(view, hl) {
   if (!hl || !hl.text) return;
   const [full] = enrichHighlights(view, [hl]);
-  exportHighlightsToBookNote(view.app, view.plugin, view.file, [full]);
+  return exportHighlightsToBookNote(view.app, view.plugin, view.file, [full]);
 }
 function pdfTextLooksUnreadable(items) {
   const text = (items || []).map((it) => typeof it.str === "string" ? it.str : "").join(" ");
@@ -4294,7 +4549,7 @@ function pdfFixShiftedCyrillic(items) {
 }
 function blockTexts(flow) {
   if (!flow) return [];
-  return [...flow.querySelectorAll("p,h1,h2,h3,h4")].map((el) => (el.textContent || "").replace(/\s+/g, " ").trim());
+  return [...readerBlocks(flow)].map((el) => (el.textContent || "").replace(/\s+/g, " ").trim());
 }
 function tocLooksLikeNoise(items, all) {
   if (!items || items.length < 30) return false;
@@ -4309,14 +4564,27 @@ function tocLooksLikeNoise(items, all) {
 function buildTocItems(html, outline) {
   try {
     const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
-    const all = [...doc.body.querySelectorAll("p,h1,h2,h3,h4")];
+    const all = [...readerBlocks(doc.body)];
     const pageOfBlock = (i) => {
       const el = all[i];
       const holder = el && el.closest ? el.closest("[data-pdf-page-no]") : null;
       const p = holder ? parseInt(holder.getAttribute("data-pdf-page-no"), 10) : NaN;
       return isNaN(p) ? null : p;
     };
-    const withPages = (items2) => items2.map((it) => ({ ...it, page: pageOfBlock(it.block) }));
+    const withPages = (items2) => items2.map((it) => ({ ...it, page: it.page || pageOfBlock(it.block) }));
+    const navigation = [...doc.body.querySelectorAll("nav[data-er-toc] a[data-er-target]")];
+    if (navigation.length) {
+      const targets = [...doc.body.querySelectorAll("[data-er-id]")];
+      const items = navigation.flatMap(link => {
+        const ref = link.getAttribute("data-er-target");
+        const target = targets.find(el => el.getAttribute("data-er-id") === ref)
+          || targets.find(el => el.getAttribute("data-er-id") === ref.split("#")[0] + "#");
+        const owner = target && blockOwner(target, doc.body);
+        const block = owner ? all.indexOf(owner) : -1;
+        return block >= 0 ? [{ label: link.textContent.trim(), block, level: Number(link.getAttribute("data-er-level")) || 0 }] : [];
+      });
+      if (items.length) return withPages(items);
+    }
     if (outline && outline.length) {
       const firstBlockOf = /* @__PURE__ */ new Map();
       all.forEach((el, i) => {
@@ -4330,21 +4598,23 @@ function buildTocItems(html, outline) {
         let block = firstBlockOf.get(o.page);
         if (block === void 0) {
           const nxt = pages.find((p) => p >= o.page);
-          if (nxt === void 0) continue;
-          block = firstBlockOf.get(nxt);
+          if (nxt !== void 0) block = firstBlockOf.get(nxt);
         }
-        items2.push({ label: String(o.label).slice(0, 60), block, level: o.level || 0 });
+        items2.push({ label: String(o.label).slice(0, 120), block, page: o.page, level: o.level || 0 });
       }
       if (items2.length) return withPages(items2);
     }
     const items = [];
     all.forEach((el, i) => {
-      if (/^H[1-3]$/.test(el.tagName)) {
+      if (/^H[1-6]$/.test(el.tagName)) {
         const label = (el.textContent || "").trim().slice(0, 60);
-        if (label) items.push({ label, block: i, level: 0 });
+        if (label) items.push({ label, block: i, level: Number(el.tagName.slice(1)) - 1 });
       }
     });
-    if (items.length && !tocLooksLikeNoise(items, all)) return withPages(items);
+    if (items.length) return withPages(items.sort((a, b) => {
+      const pos = all[a.block].compareDocumentPosition(all[b.block]);
+      return pos & 4 ? -1 : pos & 2 ? 1 : 0;
+    }));
     const printed = tocFromPrintedContents(all);
     if (printed.length && !tocLooksLikeNoise(printed, all)) return withPages(printed);
     const bold = tocFromBoldParagraphs(all);
@@ -4391,7 +4661,7 @@ function tocFromPrintedContents(all) {
     items.push({ label: ln.label.slice(0, 60), block: body[hit].i, level: 0 });
     from = hit + 1;
   }
-  return items.length >= 3 ? items : [];
+  return items;
 }
 function tocFromBoldParagraphs(all) {
   const items = [];
@@ -4413,7 +4683,7 @@ function tocFromBoldParagraphs(all) {
   const unique = items.filter((it) => seen.get(it.label) <= 2);
   const pages = Math.max(1, all.length / 12);
   if (unique.length > pages) return [];
-  return unique.length >= 3 ? unique : [];
+  return unique;
 }
 async function renderVisibleFigures(view) {
   const lazy = view._pdfLazy;
@@ -4443,7 +4713,7 @@ async function renderVisibleFigures(view) {
       if (dist <= 2 && !loaded && !gaveUp) {
         const ri = img.dataset.pdfRect;
         try {
-          img.src = await lazy.render(parseInt(img.dataset.pdfPage), ri == null ? null : parseInt(ri));
+          img.src = await lazy.render(parseInt(img.dataset.pdfPage), ri == null ? null : parseInt(ri), docOf(img));
           img.dataset.loaded = "1";
         } catch (e) {
           if (String(e && e.message) === "er-render-too-heavy") {
@@ -4560,112 +4830,7 @@ function pdfPickFigures(rects, view) {
   });
   return mergeRects(big, 6).filter((r) => r.x1 - r.x0 >= 56 && r.y1 - r.y0 >= 56).sort((a, b) => b.y1 - a.y1);
 }
-const BLOCK_TAGS = /^(p|div|section|article|main|aside|figure|figcaption|h[1-6]|ul|ol|dl|li|dt|dd|table|pre|blockquote|hr|img)$/i;
-function tableToHtml(el) {
-  let _a, _b;
-  const rows = Array.from((_b = (_a = el.querySelectorAll) == null ? void 0 : _a.call(el, "tr")) != null ? _b : []);
-  if (!rows.length) return "";
-  const body = rows.map((tr) => {
-    const cells = Array.from(tr.children || []).filter((c) => /^(td|th)$/i.test(c.tagName || ""));
-    if (!cells.length) return "";
-    return "<tr>" + cells.map((c) => {
-      const t = (c.tagName || "").toLowerCase() === "th" ? "th" : "td";
-      const inner = inlineHtml(c).trim();
-      return `<${t}>${inner}</${t}>`;
-    }).join("") + "</tr>";
-  }).filter(Boolean).join("");
-  return body ? `<table class="er-table">${body}</table>` : "";
-}
-function nodeToHtml(el) {
-  let _a2, _b2, _c2;
-  let _a, _b, _c, _d;
-  if (!el)
-    return "";
-  const tag = (_b = (_a = el.tagName) == null ? void 0 : _a.toLowerCase()) != null ? _b : "";
-  const text = (_d = (_c = el.textContent) == null ? void 0 : _c.trim()) != null ? _d : "";
-  if (!text && !["br", "hr", "img"].includes(tag) && !((_a2 = el.querySelector) == null ? void 0 : _a2.call(el, "img")))
-    return "";
-  if (/^h[1-6]$/.test(tag))
-    return `<${tag}>${escHtml(text)}</${tag}>`;
-  if (tag === "br")
-    return "<br>";
-  if (tag === "hr")
-    return "<hr>";
-  if (tag === "img") {
-    const src = (_c2 = (_b2 = el.getAttribute) == null ? void 0 : _b2.call(el, "src")) != null ? _c2 : "";
-    if (!src) return "";
-    return `<img src="${escHtml(src)}" style="max-width:100%;height:auto;display:block;margin:8px auto">`;
-  }
-  if (tag === "pre") {
-    const code = (el.textContent || "").replace(/\s+$/, "");
-    return code.trim() ? `<pre class="er-code"><code>${escHtml(code)}</code></pre>` : "";
-  }
-  if (tag === "table") return tableToHtml(el);
-  if (tag === "aside") {
-    const inner = Array.from(el.children).map((c) => nodeToHtml(c)).filter(Boolean).join("\n") || (inlineHtml(el).trim() ? `<p>${inlineHtml(el)}</p>` : "");
-    return inner ? `<div class="er-side-notes">${inner}</div>` : "";
-  }
-  if (["div", "section", "article", "body", "main", "aside", "figure"].includes(tag)) {
-    const hasBlockChild = Array.from(el.children).some((c) => BLOCK_TAGS.test(c.tagName || ""));
-    if (!hasBlockChild) {
-      const inner = inlineHtml(el);
-      return inner.trim() ? `<p>${inner}</p>` : "";
-    }
-    const childHtml = Array.from(el.children).map((c) => nodeToHtml(c)).filter(Boolean).join("\n");
-    if (!childHtml) {
-      const direct = directText(el).trim();
-      return direct ? `<p>${escHtml(direct)}</p>` : "";
-    }
-    return childHtml;
-  }
-  if (["p", "li", "dt", "dd", "blockquote"].includes(tag)) {
-    const toc = tocLineHtml(text);
-    if (toc) return toc;
-    const inner = inlineHtml(el);
-    return inner.trim() ? `<p>${inner}</p>` : "";
-  }
-  if (["ul", "ol", "dl"].includes(tag)) {
-    return Array.from(el.children).map((c) => nodeToHtml(c)).filter(Boolean).join("\n");
-  }
-  return text ? `<p>${escHtml(text)}</p>` : "";
-}
-function inlineHtml(el) {
-  let _a2;
-  let _a, _b, _c;
-  let out = "";
-  for (const node of Array.from(el.childNodes)) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      out += escHtml((_a = node.textContent) != null ? _a : "");
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const t = (_c = (_b = node.tagName) == null ? void 0 : _b.toLowerCase()) != null ? _c : "";
-      const inner = inlineHtml(node);
-      if (["b", "strong"].includes(t))
-        out += `<strong>${inner}</strong>`;
-      else if (["i", "em"].includes(t))
-        out += `<em>${inner}</em>`;
-      else if (["code", "kbd", "samp", "tt", "var"].includes(t))
-        out += `<code>${inner}</code>`;
-      else if (t === "sup")
-        out += `<sup>${inner}</sup>`;
-      else if (t === "sub")
-        out += `<sub>${inner}</sub>`;
-      else if (t === "br")
-        out += "<br>";
-      else if (t === "img") {
-        const src = ((_a2 = node.getAttribute) == null ? void 0 : _a2.call(node, "src")) || "";
-        if (src) out += `<img src="${escHtml(src)}" style="max-width:100%;height:auto">`;
-      } else
-        out += inner;
-    }
-  }
-  return out;
-}
-function directText(el) {
-  return Array.from(el.childNodes).filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => {
-    let _a;
-    return (_a = n.textContent) != null ? _a : "";
-  }).join("");
-}
+function nodeToHtml(el) { return bookNodeHtml(el); }
 function fixPunct(s) {
   return (s || "").replace(/­/g, "").replace(/[ \t\u00A0]+/g, " ").replace(/\s+([,.;:!?…)\]»%”’])/g, "$1").replace(/([([«“‘])\s+/g, "$1").replace(/([А-Яа-яЁёA-Za-z]) - ([А-Яа-яЁёA-Za-z])/g, "$1—$2").replace(/ +/g, " ").trim();
 }
@@ -5064,7 +5229,7 @@ function wrapBlockRange(block, start, end, hl) {
   }
 }
 function _readerSettings(app) {
-  const p = app && app.plugins && app.plugins.plugins ? app.plugins.plugins["elton-reader-books"] : null;
+  const p = app && app.plugins && app.plugins.plugins ? app.plugins.plugins["curd-reader"] : null;
   return p && p.settings || {};
 }
 function noteTemplatePath(app, bookFile) {
@@ -5102,14 +5267,22 @@ function bookNoteFiles(app) {
 }
 function resolveBookNote(app, name) {
   if (!name) return null;
-  const byLink = app.metadataCache.getFirstLinkpathDest ? app.metadataCache.getFirstLinkpathDest(name, "") : null;
-  if (byLink instanceof TFile) return byLink;
+  const cleaned = String(name).replace(/^\[\[|\]\]$/g, "").split("|")[0].trim();
+  const path = erPath(cleaned.endsWith(".md") ? cleaned : cleaned + ".md");
+  if (cleaned.includes("/")) {
+    const file = app.vault.getAbstractFileByPath(path);
+    return file instanceof TFile ? file : null;
+  }
   const base = bookNotesFolderPath(app);
-  const direct = app.vault.getAbstractFileByPath(erPath(base ? `${base}/${name}.md` : `${name}.md`));
-  if (direct instanceof TFile) return direct;
-  const hit = app.metadataCache.getFirstLinkpathDest(name, "");
-  return hit instanceof TFile ? hit : null;
+  const preferred = base && app.vault.getAbstractFileByPath(erPath(`${base}/${path}`));
+  if (preferred instanceof TFile) return preferred;
+  const candidates = app.vault.getMarkdownFiles().filter(file => file.basename === cleaned.replace(/\.md$/, ""));
+  if (candidates.length > 1) return null;
+  if (candidates.length === 1) return candidates[0];
+  const resolved = app.metadataCache.getFirstLinkpathDest?.(cleaned, "");
+  return resolved instanceof TFile ? resolved : null;
 }
+
 const BookNotePicker = class extends FuzzySuggestModal {
   constructor(app, files, onChoose) {
     super(app);
@@ -5198,7 +5371,7 @@ function attachFolderSuggest(app, textComp) {
   try {
     if (FolderSuggest && textComp && textComp.inputEl) new FolderSuggest(app, textComp.inputEl);
   } catch (e) {
-    console.warn("Book Reader: folder suggest unavailable", e);
+    console.warn("Curd Reader: folder suggest unavailable", e);
   }
 }
 function attachPathInput(app, textComp, commit) {
@@ -5229,7 +5402,7 @@ async function appendLinkToBookNote(app, plugin, bookFile, newFile) {
     const noteFile = resolveBookNote(app, name);
     if (!noteFile || noteFile.path === newFile.path) return;
     const heading = __ertr("## Заметки из выделений");
-    const link = `- [[${newFile.basename}]]`;
+    const link = `- [[${newFile.path.replace(/\.md$/, "")}]]`;
     const add = (data) => {
       const base = data.replace(/\s*$/, "");
       return data.includes(heading) ? `${base}
@@ -5243,7 +5416,7 @@ ${link}
     if (typeof app.vault.process === "function") await app.vault.process(noteFile, add);
     else await app.vault.modify(noteFile, add(await app.vault.read(noteFile)));
   } catch (e) {
-    console.error("Elton Reader: append to book note failed", e);
+    console.error("Curd Reader: append to book note failed", e);
   }
 }
 const RESERVED_NAMES = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
@@ -5270,6 +5443,67 @@ function suggestNoteTitle(text, max = 60) {
   if (sp > max * 0.5) cut = cut.slice(0, sp);
   return cut.replace(/\s+[a-zа-яё]{1,2}$/i, "").replace(/[.,;:!?…\-—\s]+$/, "");
 }
+function readingPosition(view) {
+  if (!view.file) return null;
+  if (view.pager?.flow && !view._loading && !view._layoutTask && !view.pager._building) {
+    const block = view.pager.currentBlockIndex();
+    const pct = view.pager.total > 1 ? view.pager.spread / (view.pager.total - 1) : 0;
+    return { pct, percent: Math.round(pct*100), block, anchor: anchorFor(view.pager.blockEl(block)), lastRead: Date.now() };
+  }
+  return view.plugin.getProgress(view.file.path);
+}
+function renderReadingHistory(view, host, { onReturn } = {}) {
+  host.empty();
+  if (!view.file) return;
+  const plugin = view.plugin, path = view.file.path, list = plugin.getBackups(path);
+  const badge = host.parentElement?._erCount;
+  if (badge) badge.setText(list.length ? String(list.length) : "");
+  const position = readingPosition(view);
+  const current = host.createDiv("er-history-current");
+  current.createSpan({ cls:"er-history-percent", text:`${position?.percent ?? 0}%` });
+  const currentBody = current.createDiv("er-history-body");
+  currentBody.createDiv({ cls:"er-history-title", text:"Текущее положение" });
+  currentBody.createDiv({ cls:"er-history-detail", text:position?.anchor?.text || "Сохранится после очистки истории" });
+  const toolbar = host.createDiv("er-history-toolbar");
+  toolbar.createSpan({text:`Точки возврата: ${list.length}`});
+  const clear = toolbar.createEl("button", {cls:"er-history-clear",text:"Очистить историю",attr:{type:"button"}});
+  clear.disabled = !list.length;
+  clear.title = "Удалить точки возврата, сохранив текущее положение книги";
+  clear.addEventListener("click",async()=>{
+    clear.disabled = true;
+    if (await plugin.clearReadingHistory(path,readingPosition(view))) {
+      renderReadingHistory(view,host,{onReturn});
+      new Notice("История очищена. Текущее положение сохранено.");
+    } else clear.disabled = false;
+  });
+  if (!list.length) { host.createDiv({cls:"er-hist-empty",text:"История пуста. Новые точки появятся по мере чтения."}); return; }
+  const points = host.createDiv("er-history-list");
+  for (const snap of [...list].reverse()) {
+    const row = points.createDiv("er-history-point");
+    const jump = row.createEl("button",{cls:"er-history-jump",attr:{type:"button"}});
+    jump.createSpan({cls:"er-history-percent",text:`${snap.percent}%`});
+    const body = jump.createDiv("er-history-body");
+    const date = new Date(snap.ts || snap.lastRead || Date.now()).toLocaleString("ru-RU",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit",second:"2-digit"});
+    body.createDiv({cls:"er-history-title",text:date});
+    body.createDiv({cls:"er-history-detail",text:snap.anchor?.text || (snap.manual ? "Сохранённая точка" : "Автоматическая точка")});
+    body.createSpan({cls:"er-history-kind",text:snap.manual ? "Сохранённая" : "Автоматическая"});
+    jump.setAttribute("aria-label",`Вернуться к ${snap.percent}%, ${date}`);
+    jump.disabled = !view.bookHtml || !!view._loading || !!view._layoutTask;
+    jump.addEventListener("click",()=>{
+      if (!view.bookHtml || view._loading || view._layoutTask) return;
+      const fraction = typeof snap.pct === "number" ? snap.pct : (snap.percent || 0)/100;
+      const [cur,tot] = Number.isInteger(snap.block) ? view.pager.jumpToBlock(resolveAnchor(view.pager.flow,snap.anchor,snap.block)) : view.pager.jumpTo(Math.round(fraction*Math.max(0,view.pager.total-1)));
+      (view.updateUI || view._updateUI)?.call(view,cur,tot);
+      plugin.saveProgress(path,cur,tot,view.pager.currentBlockIndex());
+      (view.closePanel || view._closePanel)?.call(view);
+      onReturn?.();
+      new Notice(__ertr("Вернулись к {0}%",snap.percent));
+    });
+    const remove = row.createEl("button",{cls:"er-history-remove",attr:{type:"button"}});
+    svgIcon(remove,"trash");remove.setAttribute("aria-label",`Удалить точку ${snap.percent}%, ${date}`);remove.title="Удалить точку";
+    remove.addEventListener("click",async()=>{remove.disabled=true;if(await plugin.removeReadingHistory(path,snap))renderReadingHistory(view,host,{onReturn});else remove.disabled=false;});
+  }
+}
 const ReadSettingsModal = class extends Modal {
   constructor(app, view) {
     super(app);
@@ -5279,6 +5513,13 @@ const ReadSettingsModal = class extends Modal {
   // называют свои методы по-разному, поэтому зовём то, что есть.
   async _apply(нуженПересчёт) {
     const v = this.view;
+    if (v._librarySettings) {
+      window.clearTimeout(this._saveT);
+      this._saveT = window.setTimeout(() => v.plugin._saveLocalData(), 500);
+      for (const reader of v._readers()) { reader.applyVars?.(); reader._applyTheme?.(); if (нуженПересчёт) await (reader.repaginate?.() || reader._repaginate?.()); }
+      this._paintPreview();
+      return;
+    }
     // Записывать data.json на КАЖДОЕ нажатие — это и есть та самая задержка:
     // на телефоне запись идёт через хранилище и синхронизацию, и интерфейс
     // стоит. Вид меняем сразу, а на диск кладём, когда перестали тыкать.
@@ -5298,7 +5539,7 @@ const ReadSettingsModal = class extends Modal {
       let block = null;
       try { block = v.pager ? v.pager.currentBlockIndex() : null; } catch { /* optional step; a failure here must not interrupt reading */ }
       if (v.file && v.pager && typeof block === "number" && block >= 0) {
-        v.plugin.saveNow(v.file.path, v.pager.spread, v.pager.total, block);
+        v.plugin.saveProgress(v.file.path, v.pager.spread, v.pager.total, block);
       }
       if (typeof v.repaginate === "function") await v.repaginate();
       else if (typeof v._repaginate === "function") await v._repaginate();
@@ -5306,7 +5547,7 @@ const ReadSettingsModal = class extends Modal {
         const [cur, tot] = v.pager.jumpTo(v.pager.spreadForBlock(block));
         const ui = v.updateUI || v._updateUI;
         if (typeof ui === "function") ui.call(v, cur, tot);
-        if (v.file) v.plugin.saveNow(v.file.path, cur, tot, block);
+        if (v.file) v.plugin.saveProgress(v.file.path, cur, tot, block);
       }
     }
     this._paintPreview();
@@ -5330,7 +5571,7 @@ const ReadSettingsModal = class extends Modal {
     const row = host.createDiv("er-col-row er-rs-seg" + (компактный ? " er-rs-num" : ""));
     const btns = [];
     for (const [value, text, шрифт] of items) {
-      const b = row.createDiv("er-col-btn");
+      const b = row.createEl("button", {cls:"er-col-btn", attr:{type:"button"}});
       b.setText(text);
       if (шрифт) b.style.fontFamily = шрифт;
       if (value === current()) b.addClass("active");
@@ -5436,6 +5677,11 @@ const ReadSettingsModal = class extends Modal {
       async (m) => {
         if (m === (s.readMode || "pages")) return;
         const v = this.view;
+        if (v._librarySettings) {
+          for (const reader of v._readers()) if (reader.file && reader.pager) {
+            v.plugin.saveProgress(reader.file.path, reader.pager.spread, reader.pager.total, reader.pager.currentBlockIndex());
+          }
+        }
         // У страниц и прокрутки РАЗНЫЕ системы координат: там развороты, тут
         // экраны. Пересчитывать место «на лету» между ними — источник прыжков
         // в самый конец книги. Поэтому запоминаем абзац, на котором читатель
@@ -5443,11 +5689,12 @@ const ReadSettingsModal = class extends Modal {
         // открытии, где место восстанавливается годами без нареканий.
         try {
           if (v.file && v.pager) {
-            v.plugin.saveNow(v.file.path, v.pager.spread, v.pager.total, v.pager.currentBlockIndex());
+            v.plugin.saveProgress(v.file.path, v.pager.spread, v.pager.total, v.pager.currentBlockIndex());
           }
         } catch { /* optional step; a failure here must not interrupt reading */ }
         s.readMode = m;
         await this._apply(false);
+        if (v._librarySettings) { for (const reader of v._readers()) { if (reader.file) await (reader.openFile?.(reader.file) || reader._loadBook?.()); } return; }
         const file = v.file;
         if (!file) return;
         if (typeof v.openFile === "function") await v.openFile(file);
@@ -5473,8 +5720,8 @@ const ReadSettingsModal = class extends Modal {
     const foot = c.createDiv("er-rs-foot");
     if (typeof v._renderHistory === "function") {
       foot.createDiv("er-pan-sec").setText(__ertr("Вернуться к месту"));
-      v._histRow = foot.createDiv("er-hist-row");
-      v._renderHistory();
+      this.historyEl = foot.createDiv("er-hist-row");
+      renderReadingHistory(v, this.historyEl, { onReturn: () => this.close() });
     }
     const act = foot.createDiv("er-act-row");
     const help = act.createDiv("er-act-btn");
@@ -5488,7 +5735,7 @@ const ReadSettingsModal = class extends Modal {
     // Настройки пишутся с задержкой; окно закрыли раньше — дописываем сразу.
     window.clearTimeout(this._saveT);
     if (this.view && this.view.plugin) this.view.plugin.saveAll();
-    if (this.view) this.view._histRow = null;
+    this.view?.onSettingsClose?.();
     this.contentEl.empty();
   }
 };
@@ -5648,13 +5895,30 @@ const NoteTitleModal = class extends Modal {
   }
 };
 function processTemplateManually(tplText, title) {
-  let today;
-  try {
-    today = window.moment ? window.moment().format("YYYY-MM-DD") : (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  } catch {
-    today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const moment = window.moment;
+  let out = tplText.replace(/<%[-_]?\s*tp\.file\.title\s*[-_]?%>/g, () => title)
+    .replace(/<%[-_]?\s*tp\.date\.now\(\s*(["'])(.*?)\1\s*\)\s*[-_]?%>/g, (_, quote, format) => {
+      if (moment) return moment().format(format);
+      const date = new Date();
+      if (/[^YMD./ -]/.test(format)) throw new Error("Install Templater for this date format");
+      return format.replace(/YYYY/g, String(date.getFullYear())).replace(/MM/g, String(date.getMonth() + 1).padStart(2, "0")).replace(/DD/g, String(date.getDate()).padStart(2, "0"));
+    }).replace(/<%[-_]?\s*tp\.file\.cursor\([^)]*\)\s*[-_]?%>/g, "");
+  if (/<%[\s\S]*?%>/.test(out)) throw new Error("This template requires Templater; unsupported expressions were not removed");
+  return out;
+}
+async function createBookNoteFromTemplate(app, bookFile, path, fallback) {
+  const templatePath = noteTemplatePath(app, bookFile);
+  const template = templatePath && app.vault.getAbstractFileByPath(templatePath);
+  if (!(template instanceof TFile)) return app.vault.create(path, fallback);
+  const name = path.split("/").pop().replace(/\.md$/, "");
+  const folderPath = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+  const templater = app.plugins?.plugins?.["templater-obsidian"]?.templater;
+  if (templater?.create_new_note_from_template) {
+    const folder = folderPath ? app.vault.getAbstractFileByPath(folderPath) : app.vault.getRoot();
+    return templater.create_new_note_from_template(template, folder, name, false);
   }
-  return tplText.replace(/<%[-_]?\s*tp\.file\.title\s*[-_]?%>/g, title).replace(/<%[-_]?\s*tp\.date\.now\([^)]*\)\s*[-_]?%>/g, today).replace(/<%[-_]?\s*tp\.file\.cursor\([^)]*\)\s*[-_]?%>/g, "").replace(/<%[\s\S]*?%>/g, "");
+  const body = processTemplateManually(await app.vault.read(template), name);
+  return app.vault.create(path, body + "\n");
 }
 function bookNoteLinkFor(plugin, bookFile) {
   let _a, _b;
@@ -5678,7 +5942,7 @@ function bookNoteFromFrontmatter(plugin, bookFile) {
       if (!v) continue;
       const target = String(v).trim().replace(/^\[\[|\]\]$/g, "").split("|")[0].trim();
       if (!target) continue;
-      if (erPath(target) === want || target === wantName) return md.basename;
+      if (erPath(target) === want || target === wantName) return md.path;
     }
   } catch { /* optional step; a failure here must not interrupt reading */ }
   return "";
@@ -5692,7 +5956,7 @@ async function writeBookProperty(app, noteName, bookFile) {
       fm.book = `[[${bookFile.path}]]`;
     });
   } catch (e) {
-    console.warn("Book Reader: could not write the book property into the note", e);
+    console.warn("Curd Reader: could not write the book property into the note", e);
   }
 }
 async function createNoteFromSelection(app, plugin, selText, bookFile, opts = {}) {
@@ -5741,7 +6005,11 @@ async function createNoteFromSelection(app, plugin, selText, bookFile, opts = {}
   const src = bookFile ? __ertr("\n\n— из [[{0}]]", linkName) : "";
   const marked = color ? hlMark(app, clean.replace(/\n/g, "\n> "), color) : clean.replace(/\n/g, "\n> ");
   const tagLine = chosenTags.length ? chosenTags.map((t) => "#" + t).join(" ") + "\n\n" : "";
-  const quote = `${tagLine}> ${marked}${extra}${src}`;
+  const hl = opts.hl || {};
+  const back = bookFile && Number.isInteger(hl.block) && plugin.settings.quoteBacklinks !== false
+    ? ` [${backlinkLabel(plugin)}](obsidian://curd-reader?book=${encodeURIComponent(bookFile.path)}&block=${hl.block})` : "";
+  const marker = Number.isInteger(hl.block) ? quoteMarker(hl, bookFile?.path || "") + "\n" : "";
+  const quote = `${marker}${tagLine}> ${marked}${extra}${src}${back}`;
   const cursorRe = /<%\s*tp\.file\.cursor\([^)]*\)\s*%>/;
   const cursorReAll = /<%\s*tp\.file\.cursor\([^)]*\)\s*%>/g;
   try {
@@ -5770,9 +6038,7 @@ ${quote}
     } else {
       let body = "";
       if (templateFile) {
-        try {
-          body = processTemplateManually(await app.vault.read(templateFile), filename);
-        } catch { /* optional step; a failure here must not interrupt reading */ }
+        body = processTemplateManually(await app.vault.read(templateFile), filename);
       }
       newFile = await app.vault.create(inboxNotePath(app, filename, chosenFolder), `${body}
 
@@ -5786,7 +6052,7 @@ ${quote}
     }
     return newFile;
   } catch (e) {
-    console.error("Elton Reader: note creation failed", e);
+    console.error("Curd Reader: note creation failed", e);
     if (!silent) new Notice(__ertr("Не удалось создать заметку"));
     return null;
   }
@@ -5802,16 +6068,20 @@ function hlMark(app, text, colorId) {
 function normalizeHlText(s) {
   return String(s || "").replace(/<[^>]*>/g, " ").replace(/==+/g, " ").replace(/^\s*>+\s?/gm, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
-function splitExportedHighlights(noteText, highlights) {
-  const hay = normalizeHlText(noteText);
+function quoteMarker(hl, bookPath = "") {
+  const key = hl.id || `${hl.block ?? ""}:${hl.occ || 0}:${normalizeHlText(hl.text)}`;
+  return `<!-- book-reader-quote:${encodeURIComponent(bookPath)}:${encodeURIComponent(key)} -->`;
+}
+function splitExportedHighlights(noteText, highlights, bookPath = "") {
   const fresh = [], already = [];
   for (const hl of highlights || []) {
-    const needle = normalizeHlText(hl && hl.text);
-    if (needle && hay && hay.includes(needle)) already.push(hl);
+    const marker = quoteMarker(hl, bookPath);
+    if (noteText.includes(marker)) already.push(hl);
     else fresh.push(hl);
   }
   return { fresh, already };
 }
+
 async function openNoteBesideBook(app, plugin, file, line, opts = {}) {
   const mode = opts.mode || plugin && plugin.settings && plugin.settings.noteOpenMode || "split";
   if (mode === "none" || !file) return null;
@@ -5852,15 +6122,24 @@ function deleteBookFromVault(app, plugin, file, after) {
       try {
         await app.fileManager.trashFile(file);
         const path5 = file.path;
+        await plugin._hlChain;
+        plugin._deletedBooks.add(path5);
         if (plugin.progress) delete plugin.progress[path5];
         if (plugin.progressBackups) delete plugin.progressBackups[path5];
         if (plugin.highlights) delete plugin.highlights[path5];
         if (plugin.settings && plugin.settings.coverFits) delete plugin.settings.coverFits[path5];
-        await plugin.saveAll();
-        new Notice(__ertr("Книга удалена: {0}", file.basename));
+        const highlightsSaved = await plugin._persistHighlights(path5, disk => { delete disk[path5]; });
+        for (const key of ["bookNoteLinks", "bookNotePrompted", "bookTags", "bookTemplates"]) if (plugin.settings[key]) delete plugin.settings[key][path5];
+        delete plugin.highlightsBackups[path5];
+        delete plugin.thumbCache[path5];
+        delete plugin.thumbMeta[path5];
+        await plugin._saveThumbCache();
+        const librarySaved = await plugin.editLibrary(data => { delete data.books[path5]; });
+        const settingsSaved = await plugin.saveAll();
+        new Notice(highlightsSaved && settingsSaved && librarySaved ? __ertr("Книга удалена: {0}", file.basename) : "Книга перемещена в корзину, но очистить все данные чтения не удалось. Проверьте файлы данных.");
         if (typeof after === "function") after();
       } catch (e) {
-        console.error("Elton Reader: delete book failed", e);
+        console.error("Curd Reader: delete book failed", e);
         new Notice(__ertr("Не удалось удалить книгу"));
       }
     }
@@ -5879,7 +6158,7 @@ function quoteMarkdown(plugin, hl, bookFile) {
   const page = hl && hl.page ? __ertr(", стр. {0}", hl.page) : "";
   let link = "";
   if (plugin.settings.quoteBacklinks !== false && bookFile && typeof hl.block === "number" && hl.block >= 0) {
-    link = ` [${backlinkLabel(plugin)}](obsidian://elton-reader?book=${encodeURIComponent(bookFile.path)}&block=${hl.block})`;
+    link = ` [${backlinkLabel(plugin)}](obsidian://curd-reader?book=${encodeURIComponent(bookFile.path)}&block=${hl.block})`;
   }
   const comment = hl && hl.comment ? `
 >
@@ -5900,7 +6179,7 @@ async function exportHighlightsSeparate(app, plugin, bookFile, highlights) {
   const reserved = /* @__PURE__ */ new Set();
   let ok = 0, fail = 0;
   for (const hl of highlights) {
-    const f = await createNoteFromSelection(app, plugin, hl.text, bookFile, { open: false, silent: true, reserved, extra: hlCommentMd(hl), color: hl.color });
+    const f = await createNoteFromSelection(app, plugin, hl.text, bookFile, { open: false, silent: true, reserved, extra: hlCommentMd(hl), color: hl.color, hl });
     if (f) ok++;
     else fail++;
   }
@@ -6000,7 +6279,7 @@ async function exportHighlightsToBookNote(app, plugin, bookFile, highlights) {
   } catch {
     existingText = "";
   }
-  const split = splitExportedHighlights(existingText, highlights);
+  const split = splitExportedHighlights(existingText, highlights, bookFile?.path || "");
   if (!split.fresh.length) {
     new Notice(split.already.length === 1 ? __ertr("Эта цитата уже есть в \xAB{0}\xBB", noteFile.basename) : __ertr("Все выбранные цитаты уже есть в \xAB{0}\xBB", noteFile.basename));
     return;
@@ -6019,13 +6298,13 @@ async function exportHighlightsToBookNote(app, plugin, bookFile, highlights) {
     }
     let where = hl.page ? __ertr(" *(стр. {0})*", hl.page) : "";
     if (plugin.settings.quoteBacklinks !== false && bookFile && typeof hl.block === "number" && hl.block >= 0) {
-      const uri = `obsidian://elton-reader?book=${encodeURIComponent(bookFile.path)}&block=${hl.block}`;
+      const uri = `obsidian://curd-reader?book=${encodeURIComponent(bookFile.path)}&block=${hl.block}`;
       where += ` [${backlinkLabel(plugin)}](${uri})`;
     }
     const cmt = hl.comment ? `
 >
 > — ${hl.comment.replace(/\n/g, "\n> ")}` : "";
-    g.lines.push(`> ${hlMark(app, clean, hl.color)}${where}${cmt}`);
+    g.lines.push(`${quoteMarker(hl, bookFile?.path || "")}\n> ${hlMark(app, clean, hl.color)}${where}${cmt}`);
   }
   const parts = groups.flatMap((g) => g.lines);
   if (!parts.length) {
@@ -6033,9 +6312,7 @@ async function exportHighlightsToBookNote(app, plugin, bookFile, highlights) {
     return;
   }
   const heading = __ertr("## Цитаты");
-  const block = groups.map((g) => (g.chapter ? `**${g.chapter}**
-
-` : "") + g.lines.join("\n\n")).join("\n\n");
+  let inserted = 0;
   let targetLine = 0;
   const add = (data) => {
     const base = data.replace(/\s*$/, "");
@@ -6047,12 +6324,17 @@ ${heading}
 
 `;
     targetLine = (prefix.match(/\n/g) || []).length;
-    return `${prefix}${block}
-`;
+    const filtered = groups.map(g => {
+      const lines = g.lines.filter(line => !data.includes(line.split("\n")[0]));
+      inserted += lines.length;
+      return lines.length ? (g.chapter ? `**${g.chapter}**\n\n` : "") + lines.join("\n\n") : "";
+    }).filter(Boolean).join("\n\n");
+    return filtered ? `${prefix}${filtered}\n` : data;
   };
   try {
     if (typeof app.vault.process === "function") await app.vault.process(noteFile, add);
     else await app.vault.modify(noteFile, add(await app.vault.read(noteFile)));
+    if (!inserted) return;
     new Notice(skipped ? __ertr("Добавлено в \xAB{0}\xBB: {1}, пропущено уже имевшихся: {2}", noteFile.basename, parts.length, skipped) : __ertr("Добавлено цитат в \xAB{0}\xBB: {1}", noteFile.basename, parts.length));
     new ConfirmModal(app, {
       title: __ertr("Цитаты добавлены"),
@@ -6062,7 +6344,7 @@ ${heading}
       onYes: () => openNoteInTab(app, noteFile, targetLine)
     }).open();
   } catch (e) {
-    console.error("Elton Reader: append quotes to book note failed", e);
+    console.error("Curd Reader: append quotes to book note failed", e);
     new Notice(__ertr("Не удалось добавить цитаты в заметку книги"));
   }
 }
@@ -6072,7 +6354,7 @@ const HighlightExportModal = class extends Modal {
     this.plugin = plugin;
     this.bookFile = bookFile;
     this.noteName = noteName || "";
-    const split = splitExportedHighlights(noteText, highlights);
+    const split = splitExportedHighlights(noteText, highlights, bookFile?.path || "");
     this.already = new Set(split.already);
     this.items = highlights.map((hl) => ({ hl, on: !split.already.includes(hl) }));
     this.newCount = split.fresh.length;
@@ -6178,7 +6460,7 @@ const InfoModal = class extends Modal {
     const { contentEl, modalEl } = this;
     modalEl.addClass("er-info-modal");
     contentEl.empty();
-    contentEl.createDiv("er-info-title").setText(__ertr("Как пользоваться Book Reader"));
+    contentEl.createDiv("er-info-title").setText(__ertr("Как пользоваться Curd Reader"));
     contentEl.createDiv("er-info-sub").setText(__ertr("Что делает каждая кнопка и зачем"));
     const groups = [
       { head: __ertr("Верхняя панель"), rows: [
@@ -6224,7 +6506,7 @@ const InfoModal = class extends Modal {
 const ONBOARD_SLIDES = [
   {
     emoji: "\u{1F4D6}",
-    title: __ertr("Добро пожаловать в Book Reader!"),
+    title: __ertr("Добро пожаловать в Curd Reader!"),
     body: [
       __ertr("Это уютная читалка книг прямо внутри Obsidian. Читаете, выделяете важное и превращаете выделения в заметки — не выходя из хранилища."),
       __ertr("Пролистайте несколько экранов стрелкой → (или кнопкой \xABДалее\xBB). Это займёт минуту, зато потом всё будет понятно.")
@@ -6305,7 +6587,7 @@ const ONBOARD_SLIDES = [
     title: __ertr("Дальше — разбор настроек"),
     body: [
       __ertr("Следующие экраны проходят по настройкам плагина: что делает каждая, что выбрать и что будет, если ничего не менять."),
-      __ertr("Открыть настройки: шестерёнка Obsidian → \xABПлагины сообщества\xBB → Book Reader. Вверху пять вкладок: Чтение, Заметки, Перевод, Данные, О плагине."),
+      __ertr("Открыть настройки: шестерёнка Obsidian → \xABПлагины сообщества\xBB → Curd Reader. Вверху пять вкладок: Чтение, Заметки, Перевод, Данные, О плагине."),
       __ertr("Ни одну из них не обязательно настраивать сразу — плагин работает и так. Этот разбор нужен, чтобы вы знали, что вообще можно поменять.")
     ]
   },
@@ -6394,9 +6676,9 @@ const ONBOARD_SLIDES = [
     emoji: "\u{1F5C4}️",
     title: __ertr("Вкладка \xABДанные\xBB: где что лежит"),
     body: [
-      __ertr("\xABПапка с книгами\xBB — где плагин ищет книги для библиотеки. Пусто — ищет по всему хранилищу."),
-      __ertr("\xABПапка для данных\xBB — где лежат файлы прогресса и выделений. Пусто — рядом с книгами. Эти файлы синхронизируются между устройствами, поэтому чтение продолжается с того же места на телефоне."),
-      __ertr("\xABПамять о книгах\xBB — кнопка \xABЗабыть все книги\xBB сбрасывает привязки заметок и категорий, но сами заметки не удаляет. Нужна, если хотите настроить всё заново.")
+      __ertr("Папка для добавляемых книг — место сохранения импорта. Библиотека собирает книги из всего хранилища."),
+      __ertr("Папка данных чтения — место хранения прогресса, выделений и виртуальных папок библиотеки. Они записаны в JSON и синхронизируются вместе с хранилищем."),
+      __ertr("\xABПамять о книгах\xBB — кнопка \xABЗабыть все книги\xBB сбрасывает привязки заметок и шаблоны книг, но сами заметки не удаляет. Нужна, если хотите настроить всё заново.")
     ]
   },
   {
@@ -6457,11 +6739,11 @@ const ONBOARD_SLIDES = [
   },
   {
     emoji: "💬",
-    title: __ertr("Пожелания и ошибки — в телеграм-бота"),
+    title: __ertr("Пожелания и ошибки — GitHub Issues"),
     body: [
-      __ertr("Всё, что хочется поменять или починить, теперь собирается в одном месте — в телеграм-боте @book_in_obsidian_bot."),
-      __ertr("Ни аккаунта на GitHub, ни формы не нужно: заметили ошибку, не хватает возможности, неудобно на телефоне — просто отправьте боту обычное сообщение."),
-      __ertr("Читаю всё подряд; из этих сообщений и складывается список того, что делать дальше.")
+      __ertr("Пожелания и сообщения об ошибках принимаются в GitHub Issues проекта Curd Reader."),
+      __ertr("Для отправки сообщения нужен аккаунт GitHub. Опишите проблему, формат книги и версию Obsidian."),
+      __ertr("Обращения помогают выбрать следующие исправления и улучшения.")
     ]
   },
   {
@@ -6485,6 +6767,7 @@ function bookNoteAction(settings, bookPath) {
   return asked[bookPath] ? "prompted" : "ask";
 }
 const WHATS_NEW = [
+  { v: "1.0.0", items: ["Curd Reader: самостоятельная MIT-версия на основе Book Reader от Elton Labs", "Виртуальные папки, быстрое оглавление, управление историей и общие настройки чтения", "Исправлены переходы, сохранение данных и загрузка ресурсов PDF"] },
   { v: "3.1.2", items: [
     __ertr("На iPhone и iPad снова открываются PDF — раньше вместо книги была ошибка про readableStream"),
     __ertr("PDF, у которых шрифт не приносит таблицу букв, больше не показываются кашей: текст восстанавливается и его снова можно выделять и искать"),
@@ -6507,7 +6790,7 @@ const WHATS_NEW = [
     __ertr("Что нового теперь сохраняется заметкой в хранилище — не нужно запоминать окно")
   ] },
   { v: "3.0.2", items: [
-    __ertr("Пожелания и ошибки теперь собираются в телеграм-боте @book_in_obsidian_bot — просто напишите ему сообщение"),
+    __ertr("Пожелания и ошибки принимаются в GitHub Issues проекта Curd Reader"),
     __ertr("Разбор фрагмента стал диалогом: свой вопрос, свой системный промпт, название книги уходит фоном"),
     __ertr("Читалка подстраивается под устройство: у телефона, планшета и компьютера своя раскладка"),
     __ertr("Тема читалки и библиотеки меняется мгновенно, появилась подстройка под тему Obsidian"),
@@ -6544,7 +6827,7 @@ const WHATS_NEW = [
     __ertr("Оглавление берётся из самого PDF, а на компьютере оно наконец работает"),
     __ertr("Из PDF показываются сами иллюстрации, а не скриншот всей страницы"),
     __ertr("Перевод выделенного фрагмента — включается в настройках"),
-    __ertr("Библиотека: категории по жанрам и папкам, фильтр \xABчитаю / прочитано\xBB"),
+    __ertr("Библиотека: виртуальные папки до пяти уровней, обновление списка, глобальные настройки чтения и фильтр статуса"),
     __ertr("При первом открытии книги можно СОЗДАТЬ для неё заметку, а не только выбрать"),
     __ertr("Настройки разложены по вкладкам, редкое убрано в \xABДоп. настройки\xBB"),
     __ertr("Текст сам перевёрстывается при открытии панелей и не теряет место"),
@@ -6573,7 +6856,7 @@ function whatsNewSince(lastSeen, current, log) {
 async function writeWhatsNewNote(app, plugin, releases) {
   try {
     if (!releases || !releases.length) return null;
-    const title = sanitizeNoteTitle(__ertr("Book Reader {0} — что нового", plugin.manifest.version));
+    const title = sanitizeNoteTitle(__ertr("Curd Reader {0} — что нового", plugin.manifest.version));
     const path = inboxNotePath(app, title, null);
     const exist = app.vault.getAbstractFileByPath(path);
     if (exist instanceof TFile) return exist;
@@ -6587,7 +6870,7 @@ ${body}
 `);
     return f instanceof TFile ? f : null;
   } catch (e) {
-    console.warn("Book Reader: could not write the what's-new note", e);
+    console.warn("Curd Reader: could not write the what's-new note", e);
     return null;
   }
 }
@@ -6605,7 +6888,7 @@ const WhatsNewModal = class extends Modal {
     const card = c.createDiv("er-onb-card er-wn-card");
     card.createDiv("er-onb-emoji").setText("✨");
     card.createDiv("er-onb-title").setText(__ertr("Что нового"));
-    card.createDiv("er-wn-sub").setText(__ertr("Book Reader обновлён до {0}", this.plugin.manifest.version));
+    card.createDiv("er-wn-sub").setText(__ertr("Curd Reader обновлён до {0}", this.plugin.manifest.version));
     const wrap = card.createDiv("er-wn-wrap");
     for (const r of this.releases) {
       const grp = wrap.createDiv("er-wn-rel");
@@ -6690,7 +6973,7 @@ const BookSetupModal = class extends Modal {
         const dir = f.parent && f.parent.path && f.parent.path !== "/" ? f.parent.path : "";
         if (dir) row.createDiv("er-setup-row-path").setText(dir);
         row.addEventListener("click", async () => {
-          this.plugin.settings.bookNoteLinks[this.file.path] = f.basename;
+          this.plugin.settings.bookNoteLinks[this.file.path] = f.path;
           await this.plugin.saveAll();
           await writeBookProperty(this.app, f.basename, this.file);
           this._finish(__ertr("Заметка книги: {0}", f.basename));
@@ -6737,15 +7020,6 @@ const BookSetupModal = class extends Modal {
     try {
       if (FolderSuggest) new FolderSuggest(this.app, folderInput);
     } catch { /* optional step; a failure here must not interrupt reading */ }
-    const tagsInput = field(__ertr("Категория"), bookTagsOf(this.plugin.settings, this.file.path).join(", "), __ertr("Например: Психология, Бизнес"));
-    const known = allBookTags(this.plugin.settings);
-    if (known.length) {
-      const dl = c.createEl("datalist");
-      dl.id = "er-setup-tags-" + Math.random().toString(36).slice(2, 8);
-      known.forEach((t) => dl.createEl("option", { value: t }));
-      tagsInput.setAttr("list", dl.id);
-    }
-    c.createDiv("er-setup-hint").setText(__ertr("Жанр или тема — по ней книги группируются в библиотеке. Несколько — через запятую. Можно оставить пустым."));
     const foot = c.createDiv("er-setup-foot");
     const createBtn = foot.createEl("button", { text: __ertr("Создать и начать читать") });
     createBtn.addClass("er-setup-btn", "er-setup-btn-primary");
@@ -6756,10 +7030,9 @@ const BookSetupModal = class extends Modal {
         createBtn.disabled = false;
         return;
       }
-      await this.plugin.setBookTags(this.file.path, parseBookTags(tagsInput.value));
       this._finish(__ertr("Заметка книги создана: {0}", note.basename));
     });
-    [nameInput, folderInput, tagsInput].forEach((el) => el.addEventListener("keydown", (e) => {
+    [nameInput, folderInput].forEach((el) => el.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
         createBtn.click();
@@ -6862,6 +7135,52 @@ const OnboardingModal = class extends Modal {
     this.contentEl.empty();
   }
 };
+function watchReaderControls(view) {
+  const root = view.contentEl;
+  if (!root || view._accessibilityObserver) return;
+  const apply = () => {
+    for (const el of root.querySelectorAll(".er-ibtn,.er-navbtn,.er-hl-sw,.er-lib-card,.er-lib-morebtn,.er-lib-fitbtn,.er-toc-item,.er-find-item,.er-fb2-ref,.er-timerbtn,.er-timer-reset,.er-hist-chip,.er-font-btn,.er-lh-btn,.er-act-btn")) {
+      if (el.tagName !== "BUTTON" && el.getAttribute("role") !== "treeitem" && !el.dataset.erKeyboard) {
+        el.dataset.erKeyboard = "1"; activateButton(el);
+        if (!el.getAttribute("aria-label")) el.setAttribute("aria-label", el.getAttribute("title") || el.textContent.trim() || "Действие");
+      }
+    }
+  };
+  apply();
+  view._accessibilityObserver = new (winOf(root).MutationObserver)(apply);
+  view._accessibilityObserver.observe(root, { childList: true, subtree: true });
+}
+function beginReaderLoad(view, operation) {
+  watchReaderControls(view);
+  view._loadController?.abort();
+  view.pager?.destroy();
+  pauseTimerSession(view);
+  view._closed = false;
+  view._loading = true;
+  view._findCorpus = null;
+  clearFoundIn(view);
+  const controller = new AbortController();
+  view._loadController = controller;
+  view._loadTask = Promise.resolve(view._layoutTask).catch(() => {}).then(() => {
+    checkAbort(controller.signal);
+    return operation(controller.signal);
+  }).finally(() => {
+    if (view._loadController === controller) view._loading = false;
+  });
+  return view._loadTask;
+}
+function closeReader(view) {
+  stopReadingTimer(view);
+  clearFoundIn(view);
+  view._accessibilityObserver?.disconnect();
+  view._accessibilityObserver = null;
+  view._tocWidget?.dispose();
+  view._closed = true;
+  view._loadController?.abort();
+  view.pager?.destroy();
+  view._pdfLazy?.destroy?.();
+  view._pdfLazy = null;
+}
 const ReaderView = class extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -6870,7 +7189,7 @@ const ReaderView = class extends ItemView {
     this.pager = new Paginator();
     this.pager.onSpreadChange = (cur, tot) => {
       (this.updateUI || this._updateUI).call(this, cur, tot);
-      if (this.file) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
+      if (this.file && !this._loading && !this._layoutTask && !this._closed) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
     };
     this.bookHtml = "";
     this.tocItems = [];
@@ -6894,7 +7213,7 @@ const ReaderView = class extends ItemView {
   }
   getDisplayText() {
     let _a, _b;
-    return (_b = (_a = this.file) == null ? void 0 : _a.basename) != null ? _b : "Book Reader";
+    return (_b = (_a = this.file) == null ? void 0 : _a.basename) != null ? _b : "Curd Reader";
   }
   getIcon() {
     return "book-open";
@@ -6917,7 +7236,6 @@ const ReaderView = class extends ItemView {
   async onOpen() {
     this.buildDOM();
     this._resizeObs = new ResizeObserver(() => {
-      let _a;
       if (!this.bookHtml) return;
       if (this.containerEl.offsetParent === null) return;
       const w = this.areaEl.clientWidth;
@@ -6925,7 +7243,7 @@ const ReaderView = class extends ItemView {
       if (Math.abs(w - (this._laidOutWidth || 0)) < 8) return;
       this._setRelayout(true);
       window.clearTimeout(this._resizeTimer);
-      const delay = ((_a = this.app) == null ? void 0 : _a.isMobile) ? 500 : 260;
+      const delay = this.app?.isMobile ? 500 : 260;
       this._resizeTimer = window.setTimeout(() => {
         const fw = this.areaEl.clientWidth;
         if (!fw || this.containerEl.offsetParent === null) {
@@ -6948,9 +7266,11 @@ const ReaderView = class extends ItemView {
       if (leaf === this.leaf) recheck();
     }));
   }
-  async openFile(file) {
+  openFile(file) {
+    return beginReaderLoad(this, signal => this._openFile(file, signal));
+  }
+  async _openFile(file, signal) {
     let _a2, _b;
-    let _a;
     this.file = file;
     this.ext = file.extension === "epub" ? "epub" : file.extension === "fb2" ? "fb2" : "pdf";
     this.bookHtml = "";
@@ -6969,22 +7289,25 @@ const ReaderView = class extends ItemView {
     await new Promise((r) => window.requestAnimationFrame(r));
     try {
       if (this.ext === "epub") {
-        this.bookHtml = await extractEpub(file, this.app);
+        this.bookHtml = await extractEpub(file, this.app, { signal, onProgress: (i, n) => loadText.setText(__ertr("Готовим книгу… {0}%", Math.round(i / n * 100))) });
       } else if (this.ext === "fb2") {
-        this.bookHtml = await extractFb2(file, this.app);
+        this.bookHtml = await extractFb2(file, this.app, signal);
       } else {
-        const res = await extractPdf(file, this.app, this.plugin.settings, (i, n) => loadText.setText(__ertr("Готовим книгу… {0}%", Math.round(i / n * 100))));
+        const res = await extractPdf(file, this.app, this.plugin.settings, (i, n) => loadText.setText(__ertr("Готовим книгу… {0}%", Math.round(i / n * 100))), signal);
         this.bookHtml = res.html;
         this._pdfLazy = res.lazy;
         this._pdfOutline = res.outline;
       }
+      checkAbort(signal);
       this.tocItems = buildTocItems(this.bookHtml, this._pdfOutline);
       this.buildTocPanel();
       await this.plugin.refreshProgress();
       await this.plugin.refreshHighlights();
+      checkAbort(signal);
       const saved = this.plugin.getProgress(file.path);
       const pct = (saved == null ? void 0 : saved.pct) != null ? saved.pct : 0;
-      await this.paginate(pct, saved == null ? void 0 : saved.block);
+      await this.paginate(pct, saved?.block, saved?.anchor);
+      checkAbort(signal);
       this.buildSettPanel();
       this._maybePromptBookNote(file);
       this._sessionSec = 0;
@@ -6993,7 +7316,8 @@ const ReaderView = class extends ItemView {
       updateGoalBar(this);
       updateTimerBtn(this);
     } catch (e) {
-      console.error("Elton Reader:", e);
+      if (e.name === "AbortError") return;
+      console.error("Curd Reader:", e);
       new Notice(__ertr("Ошибка при открытии файла"));
     }
   }
@@ -7020,8 +7344,7 @@ const ReaderView = class extends ItemView {
       if (this.panelOpen === "settings") this.buildSettPanel();
     }).open();
   }
-  async paginate(savedPct = 0, savedBlock = null) {
-    this.areaEl.empty();
+  async paginate(savedPct = 0, savedBlock = null, savedAnchor = null) {
     let w = this.areaEl.clientWidth, a = 0;
     while (!w && a < 60) {
       await new Promise((r) => window.requestAnimationFrame(r));
@@ -7045,7 +7368,8 @@ const ReaderView = class extends ItemView {
     const hasBlock = typeof savedBlock === "number" && savedBlock >= 0;
     const targetSpread = hasBlock ? this.pager.spreadForBlock(savedBlock) : Math.round(savedPct * Math.max(0, total - 1));
     this._renderFlowHighlights();
-    const [cur, tot] = this.pager.jumpTo(targetSpread);
+    if (this._closed) return;
+    const [cur, tot] = hasBlock ? this.pager.jumpToBlock(resolveAnchor(this.pager.flow, savedAnchor, savedBlock)) : this.pager.jumpTo(targetSpread);
     this.updateUI(cur, tot);
     erRevealWhenSettled(this);
     if (hasBlock) this._flashBlock(savedBlock);
@@ -7057,39 +7381,22 @@ const ReaderView = class extends ItemView {
   // seconds instead of polling forever on a book that failed to open.
   // Land on a PDF page once the book is laid out. Pages are marked in the flow
   // with data-pdf-page-no, so this is a lookup rather than a guess.
-  jumpToPdfPageWhenReady(pageNo) {
-    let tries = 0;
-    const tick = () => {
-      const flow = this.pager && this.pager.flow;
-      if (flow && this.pager.total) {
-        const el = flow.querySelector(`[data-pdf-page-no="${pageNo}"]`);
-        if (el) {
-          const x = el.getBoundingClientRect().left - flow.getBoundingClientRect().left;
-          const stride = this.pager.sw / (this.pager.cols || 1);
-          const spread = Math.floor(Math.round(x / stride) / (this.pager.cols || 1));
-          const [cur, tot] = this.pager.jumpTo(Math.max(0, Math.min(spread, this.pager.total - 1)));
-          (this.updateUI || this._updateUI).call(this, cur, tot);
-          return;
-        }
-      }
-      if (++tries > 40) return;
-      window.setTimeout(tick, 100);
-    };
-    tick();
+  async jumpToPdfPageWhenReady(pageNo) {
+    await this._loadTask;
+    await this.pager._buildChain;
+    if (this._closed || !this.pager.flow) return;
+    const target = this.pager.flow.querySelector(`[data-pdf-page-no="${pageNo}"]`);
+    if (!target) { new Notice(__ertr("Страница не найдена")); return; }
+    const [cur, total] = this.pager.jumpToElement(target);
+    (this.updateUI || this._updateUI).call(this, cur, total);
   }
-  jumpToBlockWhenReady(idx) {
-    let tries = 0;
-    const tick = () => {
-      if (this.pager && this.pager.flow && this.pager.total) {
-        const [cur, tot] = this.pager.jumpTo(this.pager.spreadForBlock(idx));
-        (this.updateUI || this._updateUI).call(this, cur, tot);
-        this._flashBlock(idx);
-        return;
-      }
-      if (++tries > 40) return;
-      window.setTimeout(tick, 100);
-    };
-    tick();
+  async jumpToBlockWhenReady(idx) {
+    await this._loadTask;
+    await this.pager._buildChain;
+    if (this._closed || !this.pager.blockEl(idx)) return;
+    const [cur, total] = this.pager.jumpToBlock(idx);
+    (this.updateUI || this._updateUI).call(this, cur, total);
+    this._flashBlock(idx);
   }
   _flashBlock(idx) {
     const el = this.pager.blockEl(idx);
@@ -7117,9 +7424,9 @@ const ReaderView = class extends ItemView {
   // Used by the TOC panel.
   _jumpToBlock(block, flash = true) {
     if (!this.bookHtml || typeof block !== "number") return;
-    const [cur, tot] = this.pager.jumpTo(this.pager.spreadForBlock(block));
+    const [cur, tot] = this.pager.jumpToBlock(block);
     this.updateUI(cur, tot);
-    if (this.file) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
+    if (this.file && !this._loading && !this._layoutTask && !this._closed) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
     if (flash) this._flashBlock(block);
   }
   // Repaginate preserving current reading % (used on settings change)
@@ -7136,17 +7443,23 @@ const ReaderView = class extends ItemView {
     }
     root.toggleClass("er-relayouting", !!on);
   }
-  async repaginate() {
+  repaginate() {
+    if (this._loading || this._closed) return Promise.resolve();
+    if (this._layoutTask) { this._layoutAgain = true; return this._layoutTask; }
+    this._layoutTask = (async () => {
+      do { this._layoutAgain = false; await this._repaginateNow(); } while (this._layoutAgain && !this._closed && !this._loading);
+    })().finally(() => { this._layoutTask = null; });
+    return this._layoutTask;
+  }
+  async _repaginateNow() {
     if (!this.bookHtml) return;
     if (!this.areaEl.clientWidth || this.containerEl.offsetParent === null) return;
     const savedBlock = this.pager.currentBlockIndex();
-    const savedPct = this.pager.currentPct;
     this._setRelayout(true);
     erShowVeil(this);
     try {
       await new Promise((r) => window.requestAnimationFrame(r));
-      this.areaEl.empty();
-      const [, total] = await this.pager.build(
+      await this.pager.build(
         this.areaEl,
         this.bookHtml,
         this.plugin.settings,
@@ -7155,9 +7468,9 @@ const ReaderView = class extends ItemView {
       this._laidOutWidth = this.pager.builtWidth || this.areaEl.clientWidth;
       const w = this.areaEl.clientWidth;
       this._staleGaveUpAt = w && Math.abs(w - (this.pager.builtWidth || 0)) >= 8 ? this.pager.builtWidth : null;
-      const targetSpread = typeof savedBlock === "number" && savedBlock >= 0 ? this.pager.spreadForBlock(savedBlock) : Math.round(savedPct * Math.max(0, total - 1));
       this._renderFlowHighlights();
-      const [cur, tot] = this.pager.jumpTo(targetSpread);
+      if (this._closed || this._loading) return;
+      const [cur, tot] = this.pager.jumpToBlock(savedBlock);
       this.updateUI(cur, tot);
       if (this._tocRender) this._tocRender();
       this._findCorpus = null;
@@ -7179,7 +7492,7 @@ const ReaderView = class extends ItemView {
     svgIcon(lb, "arrow-left");
     lb.addEventListener("click", () => this.plugin.openLibrary());
     this.titleEl = top.createDiv("er-top-title");
-    this.titleEl.setText("Book Reader");
+    this.titleEl.setText("Curd Reader");
     const tr = top.createDiv("er-top-right");
     this.timerBtnEl = tr.createDiv("er-timerbtn");
     this.timerIconEl = this.timerBtnEl.createDiv("er-timer-ic");
@@ -7258,19 +7571,19 @@ const ReaderView = class extends ItemView {
     this.registerDomEvent(docOf(this.containerEl), "selectionchange", () => this._scheduleSelCheck());
     this.areaEl.addEventListener("mouseup", () => this._scheduleSelCheck());
     this.areaEl.addEventListener("click", (e) => {
-      const refEl = e.target instanceof HTMLElement ? e.target.closest("[data-er-ref]") : null;
+      const refEl = e.target?.nodeType === 1 ? e.target.closest("[data-er-ref]") : null;
       if (refEl) {
         e.preventDefault();
         e.stopPropagation();
         if (followFootnote(this, refEl.getAttribute("data-er-ref"))) return;
       }
-      const imgEl = e.target instanceof HTMLElement ? e.target.closest("img") : null;
+      const imgEl = e.target?.nodeType === 1 ? e.target.closest("img") : null;
       if (imgEl && imgEl.src) {
         e.preventDefault();
         openImageLightbox(imgEl.currentSrc || imgEl.src, this.app, imgEl);
         return;
       }
-      const span = e.target instanceof HTMLElement ? e.target.closest(".er-hl") : null;
+      const span = e.target?.nodeType === 1 ? e.target.closest(".er-hl") : null;
       if (span) {
         e.preventDefault();
         this._openHlEdit(span.getAttribute("data-hl-id"));
@@ -7282,7 +7595,7 @@ const ReaderView = class extends ItemView {
       if (!this._editHlId) return;
       const t = e.target;
       if (this.hlPopup.contains(t)) return;
-      if (t instanceof HTMLElement && t.closest(".er-hl")) return;
+      if (t?.nodeType === 1 && t.closest(".er-hl")) return;
       this._hideHlPopup();
     });
     this.areaEl.addEventListener("contextmenu", (e) => {
@@ -7316,7 +7629,6 @@ const ReaderView = class extends ItemView {
       menu.showAtMouseEvent(e);
     });
     this.registerDomEvent(docOf(this.containerEl), "keydown", (e) => {
-      let _a;
       if (!this.bookHtml)
         return;
       const ae = docOf(this.areaEl).activeElement;
@@ -7436,13 +7748,14 @@ const ReaderView = class extends ItemView {
   }
   // Manual save (💾 button / command): persist the current spot AND drop a
   // restore point, with a clear confirmation — like "saved" in a game.
-  saveNow() {
+  async saveNow() {
     if (!this.bookHtml || !this.file) {
       new Notice(__ertr("Нечего сохранять"));
       return;
     }
     const cur = this.pager.spread, tot = this.pager.total;
-    const pct = this.plugin.saveNow(this.file.path, cur, tot, this.pager.currentBlockIndex());
+    const pct = await this.plugin.saveNow(this.file.path, cur, tot, this.pager.currentBlockIndex());
+    if (pct === null) return;
     new Notice(__ertr("Сохранено ✓ — {0}%", pct));
     if (this.panelOpen === "settings") this._renderHistory();
   }
@@ -7531,7 +7844,7 @@ const ReaderView = class extends ItemView {
     const ffRow = adv.createDiv("er-ff-row");
     ["georgia", "lora", "inter"].forEach((f) => {
       const btn = ffRow.createDiv("er-ff-btn");
-      btn.setText({ georgia: "Georgia", lora: "Lora", inter: "Inter" }[f]);
+      btn.setText({ georgia: "Georgia", lora: "Lora (установленный)", inter: "Inter (установленный)" }[f]);
       btn.style.fontFamily = FONTS[f];
       if (this.plugin.settings.fontFamily === f)
         btn.addClass("active");
@@ -7593,39 +7906,7 @@ const ReaderView = class extends ItemView {
     mkAct(__ertr("Справка"), "info", () => new InfoModal(this.app, this.plugin, this.file).open());
   }
   _renderHistory() {
-    const c = this._histRow;
-    if (!c) return;
-    c.empty();
-    const list = this.file ? this.plugin.getBackups(this.file.path) : [];
-    const badge = c.parentElement && c.parentElement._erCount;
-    if (badge) badge.setText(list.length ? String(list.length) : "");
-    if (!list.length) {
-      c.createDiv("er-hist-empty").setText(__ertr("Точек пока нет"));
-      return;
-    }
-    [...list].reverse().slice(0, 14).forEach((snap) => {
-      const chip = c.createDiv("er-hist-chip");
-      if (snap.manual) chip.addClass("er-hist-manual");
-      const d = new Date(snap.ts || snap.lastRead || Date.now());
-      const mark = snap.manual ? "\u{1F4BE} " : "";
-      chip.setText(`${mark}${snap.percent}% \xB7 ${d.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`);
-      chip.addEventListener("click", () => {
-        if (!this.bookHtml) return;
-        const total = this.pager.total;
-        let target;
-        if (typeof snap.block === "number" && snap.block >= 0) {
-          target = this.pager.spreadForBlock(snap.block);
-        } else {
-          const frac = typeof snap.pct === "number" ? snap.pct : (snap.percent || 0) / 100;
-          target = Math.round(frac * Math.max(0, total - 1));
-        }
-        const [cur, tot] = this.pager.jumpTo(target);
-        this.updateUI(cur, tot);
-        if (this.file) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
-        this.closePanel();
-        new Notice(__ertr("Вернулись к {0}%", snap.percent));
-      });
-    });
+    if (this._histRow) renderReadingHistory(this, this._histRow);
   }
   buildTocPanel() {
     this._tocRender = buildTocPanelFor(this, this.tocPan, {
@@ -7650,14 +7931,13 @@ const ReaderView = class extends ItemView {
     this._hideHlPopup();
     if (name === "highlights") this.buildHlPanel();
     if (name === "settings") this._renderHistory();
-    if (name === "toc" && this._tocRender) this._tocRender();
     this.panelOpen = name;
     this.settPan.classList.toggle("er-panel-open", name === "settings");
     this.tocPan.classList.toggle("er-panel-open", name === "toc");
     this.findPan.classList.toggle("er-panel-open", name === "find");
     this.hlPan.classList.toggle("er-panel-open", name === "highlights");
     if (this.findPan) this.findPan.classList.toggle("er-panel-open", name === "find");
-    if (name === "toc" && this._tocRender) this._tocRender();
+    if (name === "toc") this._tocWidget?.open();
     this.overlayEl.classList.add("er-overlay-on");
   }
   closePanel() {
@@ -7681,7 +7961,7 @@ const ReaderView = class extends ItemView {
     this.closePanel();
     await this.plugin.refreshHighlights();
     this._lastWidth = this.areaEl.clientWidth;
-    await this.paginate(pct);
+    await this.paginate(pct, this.pager.currentBlockIndex(), anchorFor(this.pager.blockEl(this.pager.currentBlockIndex())));
     new Notice(__ertr("Обновлено"));
   }
   // ── Highlights: render / select / navigate ────────────
@@ -7689,10 +7969,10 @@ const ReaderView = class extends ItemView {
     if (!this.file || !this.pager.flow) return;
     const flow = this.pager.flow;
     unwrapAllHighlights(flow);
-    const blocks = flow.querySelectorAll("p,h1,h2,h3,h4");
+    const blocks = readerBlocks(flow);
     const list = this.plugin.getHighlights(this.file.path);
     for (const hl of list) {
-      const block = blocks[hl.block];
+      const block = blocks[resolveAnchor(this.pager.flow, hl.anchor, hl.block)];
       if (!block) continue;
       const text = block.textContent;
       const loc = locateHl(text, hl);
@@ -7719,12 +7999,13 @@ const ReaderView = class extends ItemView {
     }
     let node = range.startContainer;
     if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-    const block = node ? node.closest("p,h1,h2,h3,h4") : null;
+    const block = node ? blockOwner(node, flow) : null;
     if (!block || !flow.contains(block)) {
       this._hideHlPopup();
       return;
     }
-    const blocks = [...flow.querySelectorAll("p,h1,h2,h3,h4")];
+    const addressBlocks = readerBlocks(flow);
+    const blocks = [...addressBlocks].sort((a, b) => a.compareDocumentPosition(b) & 4 ? -1 : 1);
     const blockIndex = blocks.indexOf(block);
     if (blockIndex < 0) {
       this._hideHlPopup();
@@ -7742,7 +8023,7 @@ const ReaderView = class extends ItemView {
         const seg = bText.slice(from, to);
         if (seg.trim()) {
           parts.push({
-            block: bi,
+            block: addressBlocks.indexOf(b),
             occ: countOccurrencesBefore(bText, seg, from),
             text: seg,
             pre: bText.slice(Math.max(0, from - 32), from),
@@ -7789,7 +8070,9 @@ const ReaderView = class extends ItemView {
       (_b = selOf(this.areaEl)) == null ? void 0 : _b.removeAllRanges();
       if (this.panelOpen === "highlights") this.buildHlPanel();
       if (this.plugin.settings.quotesToBookNote === true && made.length) {
-        for (const hl of made) sendQuoteToBookNote(this, hl);
+        this._hlExportChain = (this._hlExportChain || Promise.resolve()).then(async () => {
+          for (const hl of made) await sendQuoteToBookNote(this, hl);
+        }).catch(error => console.error("Curd Reader: automatic export failed", error));
       }
     }
     this._hideHlPopup();
@@ -7801,10 +8084,11 @@ const ReaderView = class extends ItemView {
   _createHighlight(sel, colorId) {
     if (!sel || !this.file) return null;
     const id = "h" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const hl = { id, color: colorId, text: sel.text, block: sel.block, occ: sel.occ, pre: sel.pre, post: sel.post, created: Date.now() };
+    const hl = { id, color: colorId, text: sel.text, block: sel.block, occ: sel.occ, pre: sel.pre, post: sel.post, group: sel.group, anchor: anchorFor(this.pager.blockEl(sel.block)), created: Date.now() };
     this.plugin.addHighlight(this.file.path, hl);
-    const blocks = this.pager.flow.querySelectorAll("p,h1,h2,h3,h4");
-    const block = blocks[hl.block];
+    const flow = this.pager.flow;
+    const blocks = readerBlocks(flow);
+    const block = blocks[resolveAnchor(this.pager.flow, hl.anchor, hl.block)];
     if (block) {
       const t = block.textContent;
       const loc = locateHl(t, hl);
@@ -7815,9 +8099,9 @@ const ReaderView = class extends ItemView {
   _currentHl() {
     if (this._editHlId && this.file) {
       const hl = this.plugin.getHighlights(this.file.path).find((h) => h.id === this._editHlId);
-      if (hl) return { text: hl.text || "", block: hl.block, color: hl.color };
+      if (hl) return { ...hl, text: hl.text || "" };
     }
-    if (this._pendingSel) return { text: this._pendingSel.text || "", block: this._pendingSel.block, color: null };
+    if (this._pendingSel) return { ...this._pendingSel, color: null };
     return null;
   }
   _openHlEdit(id) {
@@ -7850,39 +8134,10 @@ const ReaderView = class extends ItemView {
     if (this.hlPopup) this.hlPopup.classList.remove("er-hl-popup-on");
   }
   goToHighlight(id) {
-    const flow = this.pager.flow;
-    const span = flow == null ? void 0 : flow.querySelector(`[data-hl-id="${id}"]`);
-    // Нарисованного выделения может не быть: в PDF страницы подставляются по
-    // мере чтения, и краска ложится только на те, что уже показаны. Раньше в
-    // этом случае клик по строке в списке отвечал «Выделение не найдено» и
-    // никуда не вёл. Абзац известен всегда — по нему и прыгаем, как на телефоне.
-    if (!span) {
-      const hl = this.file ? this.plugin.getHighlights(this.file.path).find((h) => h.id === id) : null;
-      if (!hl || typeof hl.block !== "number") {
-        new Notice(__ertr("Выделение не найдено"));
-        return;
-      }
-      const [c2, t2] = this.pager.jumpTo(this.pager.spreadForBlock(hl.block));
-      this.updateUI(c2, t2);
-      if (this.file) this.plugin.saveProgress(this.file.path, c2, t2, this.pager.currentBlockIndex());
-      this.closePanel();
-      window.requestAnimationFrame(() => {
-        const later = this.pager.flow?.querySelector(`[data-hl-id="${id}"]`);
-        if (later) {
-          later.classList.add("er-hl-flash");
-          window.setTimeout(() => later.classList.remove("er-hl-flash"), 1200);
-        }
-      });
-      return;
-    }
-    const rel = span.getBoundingClientRect().left - flow.getBoundingClientRect().left;
-    const spread = Math.max(0, Math.floor(rel / this.pager.sw + 1e-3));
-    const [cur, tot] = this.pager.jumpTo(spread);
-    this.updateUI(cur, tot);
-    if (this.file) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
+    const hl = this.file && this.plugin.getHighlights(this.file.path).find(h => h.id === id);
+    if (!hl) return;
     this.closePanel();
-    span.classList.add("er-hl-flash");
-    window.setTimeout(() => span.classList.remove("er-hl-flash"), 1200);
+    this._jumpToBlock(resolveAnchor(this.pager.flow, hl.anchor, hl.block));
   }
   buildHlPanel() {
     const p = this.hlPan;
@@ -7938,6 +8193,7 @@ const ReaderView = class extends ItemView {
     });
   }
   async onClose() {
+    closeReader(this);
     erHideVeil(this);
     let _a;
     stopReadingTimer(this);
@@ -7949,26 +8205,6 @@ const ReaderView = class extends ItemView {
     clearFoundIn(this);
   }
 };
-// ── Library categories ───────────────────────────────────────────────────────
-// Categories come from the SUBFOLDERS books already live in — people organise
-// their library on disk, so this needs no tagging or setup to be useful on day
-// one. Books sitting directly in the books folder fall under "Без папки".
-// The book's folder, relative to the books folder. "" when it sits directly in
-// it. Used by the folder chips, which are a tree rather than a flat list.
-function bookRelFolder(bookPath, booksFolder) {
-  const base = erPath(booksFolder);
-  let rel = erPath(bookPath);
-  if (base && rel.startsWith(base + "/")) rel = rel.slice(base.length + 1);
-  const i = rel.lastIndexOf("/");
-  return i > 0 ? rel.slice(0, i) : "";
-}
-function bookCategoryOf(bookPath, booksFolder) {
-  const base = erPath(booksFolder);
-  let rel = erPath(bookPath);
-  if (base && rel.startsWith(base + "/")) rel = rel.slice(base.length + 1);
-  const i = rel.indexOf("/");
-  return i > 0 ? rel.slice(0, i) : "";
-}
 // Reading state of a book, for the status chips.
 function bookStatusOf(prog) {
   if (!prog || !prog.lastRead) return "new";
@@ -7980,103 +8216,39 @@ function bookStatusOf(prog) {
 // The chips shown above the grid: status groups first (what you're doing right
 // now matters more than where a file sits), then one chip per folder. Empty
 // groups are dropped so the bar only ever offers filters that lead somewhere.
-function buildLibChips(files, booksFolder, getProgress, getTags, activeChip) {
-  const statuses = { reading: 0, new: 0, done: 0 };
-  const folders = /* @__PURE__ */ new Map();
-  const tags = /* @__PURE__ */ new Map();
-  for (const f of files) {
-    statuses[bookStatusOf(getProgress(f.path))]++;
-    const cat = bookCategoryOf(f.path, booksFolder);
-    folders.set(cat, (folders.get(cat) || 0) + 1);
-    for (const t of (getTags ? getTags(f.path) : [])) tags.set(t, (tags.get(t) || 0) + 1);
+const LibraryNameModal = class extends Modal {
+  constructor(app, title, value, submit) { super(app); this.title = title; this.value = value; this.submit = submit; }
+  onOpen() {
+    const c = this.contentEl;
+    c.createEl("h3", { text: this.title });
+    const input = c.createEl("input", { type: "text", cls: "er-folder-name-input" }); input.value = this.value || ""; input.maxLength = 120; input.setAttribute("aria-label", "Название папки");
+    const save = c.createEl("button", { text: "Сохранить", cls: "mod-cta" });
+    const run = async () => { if (save.disabled) return; save.disabled = true; try { if (await this.submit(input.value)) this.close(); } finally { save.disabled = false; } };
+    save.addEventListener("click", run); input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); run(); } });
+    erAutoFocus(input, 30);
   }
-  const chips = [{ id: "all", label: __ertr("Все"), count: files.length }];
-  if (statuses.reading) chips.push({ id: "status:reading", label: __ertr("Читаю"), count: statuses.reading });
-  if (statuses.new) chips.push({ id: "status:new", label: __ertr("Не начатые"), count: statuses.new });
-  if (statuses.done) chips.push({ id: "status:done", label: __ertr("Прочитано"), count: statuses.done });
-  // Reader-assigned categories come before folders: they were chosen on purpose,
-  // whereas the folder is just wherever the file happens to sit.
-  for (const [t, n] of [...tags.entries()].sort((a, b) => a[0].localeCompare(b[0], "ru"))) {
-    chips.push({ id: `tag:${t}`, label: t, count: n });
+  onClose() { this.contentEl.empty(); }
+};
+const LibraryFolderPicker = class extends FuzzySuggestModal {
+  constructor(app, plugin, submit, movingFolder = "") { super(app); this.plugin = plugin; this.submit = submit; this.movingFolder = movingFolder; this.setPlaceholder("Выберите папку библиотеки"); }
+  getItems() {
+    const data = this.plugin.library;
+    const excluded = new Set(this.movingFolder ? data.folders.filter(f => folderTrail(data, f.id).some(p => p.id === this.movingFolder)).map(f => f.id) : []);
+    const baseDepth = this.movingFolder ? folderTrail(data,this.movingFolder).length : 0;
+    const subtreeDepth = this.movingFolder ? Math.max(...data.folders.filter(f=>excluded.has(f.id)).map(f=>folderTrail(data,f.id).length-baseDepth+1)) : 0;
+    return [{ id: "", name: "Главная библиотека" }, ...data.folders.filter(f => !excluded.has(f.id) && folderTrail(data,f.id).length + subtreeDepth <= 5).map(f => ({ id: f.id, name: folderTrail(data, f.id).map(p => p.name).join(" / ") })).sort((a,b) => a.name.localeCompare(b.name))];
   }
-  const named = [...folders.entries()].filter(([c]) => c).sort((a, b) => a[0].localeCompare(b[0], "ru"));
-  // Subfolders of whichever folder is open, so a deep library can be walked
-  // instead of only sliced at the top level. Counted the same way, and only
-  // when there is more than one — a single child chip just repeats its parent.
-  const openFolder = activeChip && activeChip.startsWith("folder:") ? activeChip.slice(7) : null;
-  const subs = /* @__PURE__ */ new Map();
-  if (openFolder) {
-    for (const f of files) {
-      const rel = bookRelFolder(f.path, booksFolder);
-      if (rel !== openFolder && rel.startsWith(openFolder + "/")) {
-        const next = openFolder + "/" + rel.slice(openFolder.length + 1).split("/")[0];
-        subs.set(next, (subs.get(next) || 0) + 1);
-      }
-    }
-  }
-  // A lone folder chip would just duplicate "Все" — only show folders when they
-  // actually divide the library.
-  if (named.length > 1 || (named.length === 1 && folders.has(""))) {
-    for (const [cat, n] of named) {
-      chips.push({ id: `folder:${cat}`, label: cat, count: n });
-      // The open folder's children slot in directly beneath it, labelled with
-      // only their own name so the row does not fill with repeated prefixes.
-      if (openFolder === cat && subs.size > 1) {
-        for (const [sub, sn] of [...subs.entries()].sort((a, b) => a[0].localeCompare(b[0], "ru"))) {
-          chips.push({ id: `folder:${sub}`, label: "└ " + sub.slice(cat.length + 1), count: sn, sub: true });
-        }
-      }
-    }
-    if (folders.get("")) chips.push({ id: "folder:", label: __ertr("Без папки"), count: folders.get("") });
-  }
-  return chips;
-}
-// Apply the active chip + the search box.
-function filterLibBooks(files, chipId, query, booksFolder, getProgress, getTags) {
-  const needle = (query || "").trim().toLowerCase();
-  return files.filter((f) => {
-    if (needle && !f.basename.toLowerCase().includes(needle)) return false;
-    if (!chipId || chipId === "all") return true;
-    if (chipId.startsWith("status:")) return bookStatusOf(getProgress(f.path)) === chipId.slice(7);
-    if (chipId.startsWith("folder:")) {
-      // Prefix, not equality: choosing "История" should also show the books in
-      // "История/Древний мир". A reader asked for exactly this — folders with
-      // everything nested inside them.
-      const want = chipId.slice(7);
-      const have = bookRelFolder(f.path, booksFolder);
-      return want === "" ? have === "" : (have === want || have.startsWith(want + "/"));
-    }
-    if (chipId.startsWith("tag:")) return (getTags ? getTags(f.path) : []).includes(chipId.slice(4));
-    return true;
-  });
-}
-// Categories a reader has assigned to a book (always an array, never undefined).
-function bookTagsOf(settings, bookPath) {
-  const m = (settings && settings.bookTags) || {};
-  const v = m[bookPath];
-  return Array.isArray(v) ? v.filter(Boolean) : [];
-}
-// Every category used anywhere, for the "pick or type" dropdown.
-function allBookTags(settings) {
-  const m = (settings && settings.bookTags) || {};
-  const set = /* @__PURE__ */ new Set();
-  for (const k of Object.keys(m)) for (const t of (Array.isArray(m[k]) ? m[k] : [])) if (t) set.add(t);
-  return [...set].sort((a, b) => a.localeCompare(b, "ru"));
-}
-// "Психология, Бизнес" → ["Психология","Бизнес"]; also accepts #hashtags.
-function parseBookTags(raw) {
-  return String(raw || "")
-    .split(/[,;\n]+/)
-    .map((t) => t.trim().replace(/^#+/, "").trim())
-    .filter(Boolean)
-    .filter((t, i, a) => a.indexOf(t) === i);
-}
+  getItemText(item) { return item.name; }
+  onChooseItem(item) { this.submit(item.id); }
+};
 const LibraryModal = class extends Modal {
   constructor(app, plugin) {
     super(app);
     this.plugin = plugin;
   }
   async onOpen() {
+    this._libClosed = false;
+    const generation = this._libGeneration = (this._libGeneration || 0) + 1;
     const { contentEl, modalEl } = this;
     // The class goes on the CONTAINER as well as the dialog. Every sizing rule
     // in the stylesheet is written as `.er-modal-lib .modal` — a descendant
@@ -8102,7 +8274,7 @@ const LibraryModal = class extends Modal {
     brand.createDiv("er-lib-logo").setText("\u{1F4DA}");
     const hw = brand.createDiv("er-lib-hw");
     hw.createDiv("er-lib-title").setText(__ertr("\u0411\u0438\u0431\u043B\u0438\u043E\u0442\u0435\u043A\u0430"));
-    hw.createDiv("er-lib-sub").setText("Book Reader by Elton Labs");
+    hw.createDiv("er-lib-sub").setText("Book reader by elton lans & DK_0x3");
     // Primary action: import .pdf / .epub / .fb2 into the books folder. Sits at the
     // head of the right-hand cluster, away from the cover-size +/- so the two "+"
     // never read as one control. Files can also be dropped anywhere on the modal.
@@ -8115,11 +8287,18 @@ const LibraryModal = class extends Modal {
     const doPick = () => this._pickBooks();
     addBtn.addEventListener("click", doPick);
     addBtn.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); doPick(); } });
+    const actions = hdr.createDiv("er-lib-actions");
+    const action = (label, text, run) => { const button = actions.createEl("button", { cls: "er-lib-action", text }); button.setAttribute("aria-label", label); button.setAttribute("title", label); button.addEventListener("click", run); return button; };
+    const refreshButton = action("Обновить книги", "↻", async () => { refreshButton.disabled = true; refreshButton.setAttribute("aria-busy", "true"); try { await this.refreshBooks(); } finally { refreshButton.disabled = false; refreshButton.removeAttribute("aria-busy"); } });
+    const settingsButton = action("Настройки чтения", "", () => this.openReadingSettings());
+    svgIcon(settingsButton, "sliders");
+    const createFolder = action("Создать папку", "＋ Папка", () => this.createFolder());
     this._setupDropZone();
     const search = hdr.createDiv("er-lib-search");
     const sIc = search.createDiv("er-lib-search-ic");
     svgIcon(sIc, "search");
     const input = search.createEl("input", { cls: "er-lib-search-input", attr: { type: "text", placeholder: __ertr("\u041F\u043E\u0438\u0441\u043A \u043A\u043D\u0438\u0433\u0438\u2026"), spellcheck: "false" } });
+    input.value = this._searchQuery || "";
     const count = hdr.createDiv("er-lib-count");
     // Manual size control — adjust how big the covers are, live.
     const sizeWrap = hdr.createDiv("er-lib-size");
@@ -8141,110 +8320,107 @@ const LibraryModal = class extends Modal {
     mkSz("−", -28, __ertr("Меньше обложки"));
     mkSz("+", 28, __ertr("Больше обложки"));
     await this.plugin.refreshProgress();
-    const folder = erPath(this.plugin.settings.booksFolder);
-    // Match on "<folder>/" — a bare startsWith would also pull in a sibling
-    // folder that merely shares the prefix (e.g. "Books" catching "Books archive").
-    const prefix = folder ? folder + "/" : "";
-    const files = this.app.vault.getFiles().filter(
-      (f) => (f.extension === "epub" || f.extension === "pdf" || f.extension === "fb2") && (prefix === "" || f.path.startsWith(prefix))
-    );
-    if (!files.length) {
-      const e = contentEl.createDiv("er-lib-empty");
-      e.createDiv("er-lib-empty-icon").setText("\u{1F5C2}");
-      e.createDiv("er-lib-empty-text").setText(__ertr("\u041D\u0435\u0442 \u043A\u043D\u0438\u0433"));
-      e.createDiv("er-lib-empty-hint").setText(folder || __ertr("\u0412\u0441\u0435 \u043F\u0430\u043F\u043A\u0438 vault"));
-      // Give an empty shelf a direct way to fill itself, not just the header button.
-      const cta = e.createDiv("er-lib-empty-add");
-      cta.setAttribute("role", "button");
-      cta.setAttribute("tabindex", "0");
-      svgIcon(cta, "plus");
-      cta.createSpan({ text: __ertr("\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043A\u043D\u0438\u0433\u0443") });
-      const goCta = () => this._pickBooks();
-      cta.addEventListener("click", goCta);
-      cta.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); goCta(); } });
-      return;
-    }
-    files.sort((a, b) => {
-      let _a, _b, _c, _d;
-      const pa = (_b = (_a = this.plugin.getProgress(a.path)) == null ? void 0 : _a.lastRead) != null ? _b : 0;
-      const pb = (_d = (_c = this.plugin.getProgress(b.path)) == null ? void 0 : _c.lastRead) != null ? _d : 0;
-      return pb !== pa ? pb - pa : a.basename.localeCompare(b.basename, "ru");
-    });
-    // Category chips — folders the books live in, plus reading-state groups.
-    const chipsRow = contentEl.createDiv("er-lib-chips");
-    const grid = contentEl.createDiv("er-lib-grid");
-    const plural = (n) => {
-      const a = Math.abs(n) % 100, b = a % 10;
-      if (a > 10 && a < 20) return __ertr("\u043A\u043D\u0438\u0433");
-      if (b > 1 && b < 5) return __ertr("\u043A\u043D\u0438\u0433\u0438");
-      if (b === 1) return __ertr("\u043A\u043D\u0438\u0433\u0430");
-      return __ertr("\u043A\u043D\u0438\u0433");
-    };
-    this._grid = grid;
-    applySize();
-    const getProg = (p) => this.plugin.getProgress(p);
-    const getTags = (p) => bookTagsOf(this.plugin.settings, p);
-    // Remember the last chip across sessions, but fall back to "\u0412\u0441\u0435" if that
-    // category no longer exists (folder renamed, last book in it finished\u2026).
-    let active = this.plugin.settings.libCategory || "all";
-    // The chip list depends on which chip is active \u2014 an open folder shows its
-    // subfolders \u2014 so it is built with the remembered choice in hand, then the
-    // choice is validated against what actually came back.
-    let chips = buildLibChips(files, folder, getProg, getTags, active);
-    if (!chips.some((c) => c.id === active)) {
-      active = "all";
-      chips = buildLibChips(files, folder, getProg, getTags, active);
-    }
-    const render = (q) => {
-      grid.empty();
-      const shown = filterLibBooks(files, active, q, folder, getProg, getTags);
-      count.setText(`${shown.length} ${plural(shown.length)}`);
-      if (!shown.length) {
-        grid.createDiv("er-lib-noresult").setText(__ertr("\u041D\u0438\u0447\u0435\u0433\u043E \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E"));
-        return;
-      }
-      for (const f of shown) this.renderCard(grid, f);
-      // Re-check sizing across the modal's open animation (themes animate it, so an
-      // early measurement is wrong) \u2014 the smart fallback only acts if needed.
-      window.requestAnimationFrame(() => this._sizeCovers());
-      [120, 350, 650].forEach((t) => window.setTimeout(() => this._sizeCovers(), t));
-    };
-    // The row is rebuilt on every pick, not just re-highlighted: opening a
-    // folder adds its subfolders to the row, and leaving it takes them away.
-    const drawChips = () => {
-      chips = buildLibChips(files, folder, getProg, getTags, active);
-      chipsRow.empty();
-      // Only worth a chip bar when there is more than one thing to choose.
-      if (chips.length <= 1) { chipsRow.addClass("er-hidden"); return; }
-      chipsRow.removeClass("er-hidden");
-      chips.forEach((c) => {
-        const el = chipsRow.createDiv("er-lib-chip");
-        if (c.sub) el.addClass("er-lib-chip-sub");
-        el.createSpan({ text: c.label });
-        el.createSpan({ cls: "er-lib-chip-n", text: String(c.count) });
-        if (c.id === active) el.addClass("er-lib-chip-on");
-        el.setAttribute("role", "button");
-        el.setAttribute("tabindex", "0");
-        const pick = async () => {
-          active = c.id;
-          this.plugin.settings.libCategory = c.id;
-          await this.plugin._saveLocalData();
-          drawChips();
-          render(input.value);
-        };
-        el.addEventListener("click", pick);
-        el.addEventListener("keydown", (e) => {
-          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); }
-        });
+    await this.plugin.refreshLibrary();
+    if (this._libClosed || generation !== this._libGeneration) return;
+    const files = this.app.vault.getFiles().filter(f => /^(epub|fb2|pdf)$/i.test(f.extension));
+    files.sort((a,b) => (this.plugin.getProgress(b.path)?.lastRead || 0) - (this.plugin.getProgress(a.path)?.lastRead || 0) || a.basename.localeCompare(b.basename));
+    this._folderId = this._folderId ?? this.plugin.settings.libFolder ?? "";
+    if (!this.plugin.library.folders.some(f => f.id === this._folderId)) this._folderId = "";
+    const nav = contentEl.createDiv("er-lib-folder-nav");
+    const crumbs = nav.createDiv("er-lib-breadcrumbs");
+    const all = nav.createEl("button", { cls: "er-lib-all", text: "Все книги" });
+    const status = nav.createEl("select", { cls: "er-lib-status" });status.setAttribute("aria-label", "Состояние чтения");
+    for (const [value, label] of [["all","Все состояния"],["reading","Читаю"],["done","Прочитано"],["new","Не начато"]]) status.createEl("option", { value, text: label });
+    status.value = this._status || "all";
+    const grid = contentEl.createDiv("er-lib-grid");this._grid = grid;applySize();
+    const navigate = id => { this._folderId = id; this._libraryAll = false; this.plugin.settings.libFolder = id; this.plugin._saveLocalData(); render(input.value); };
+    const render = query => {
+      if (this._libClosed) return;
+      const data = this.plugin.library;
+      if (this._folderId && !data.folders.some(f => f.id === this._folderId)) this._folderId = "";
+      crumbs.empty();
+      const crumb = (label,id) => { const button=crumbs.createEl("button", {text:label});button.addEventListener("click",()=>navigate(id)); };
+      crumb("Библиотека", "");
+      for (const folder of folderTrail(data,this._folderId)) { crumbs.createSpan({text:"›",cls:"er-lib-crumb-separator"});crumb(folder.name,folder.id); }
+      all.toggleClass("active", !!this._libraryAll);all.setAttribute("aria-pressed",String(!!this._libraryAll));
+      createFolder.disabled = folderTrail(data,this._folderId).length >= 5;
+      const q = String(query || "").trim().toLocaleLowerCase();
+      const folders = this._libraryAll && !q ? [] : data.folders.filter(f => q ? folderTrail(data,f.id).some(p=>p.name.toLocaleLowerCase().includes(q)) : f.parentId === this._folderId).sort((a,b)=>a.name.localeCompare(b.name));
+      const shown = files.filter(file => {
+        if (q && !file.basename.toLocaleLowerCase().includes(q)) return false;
+        if (status.value !== "all" && bookStatusOf(this.plugin.getProgress(file.path)) !== status.value) return false;
+        const memberships = data.books[file.path] || [];
+        return !!q || this._libraryAll || (this._folderId ? memberships.includes(this._folderId) : !memberships.length);
       });
+      grid.empty();
+      const counts = new Map();
+      for (const file of files) { const ancestors=new Set();for(const id of data.books[file.path] || [])for(const folder of folderTrail(data,id))ancestors.add(folder.id);for(const id of ancestors)counts.set(id,(counts.get(id)||0)+1); }
+      for (const folder of folders) this.renderFolderCard(grid,folder,counts.get(folder.id)||0,navigate);
+      for (const file of shown) this.renderCard(grid,file);
+      count.setText(`${folders.length} папок · ${shown.length} книг`);
+      if (!folders.length && !shown.length) grid.createDiv({cls:"er-lib-noresult",text:q ? "Ничего не найдено" : "Здесь пока нет книг. Папку для книги можно выбрать в её меню ⋯ или перетащить карточку в папку."});
+      window.requestAnimationFrame(()=>this._sizeCovers());
     };
-    drawChips();
-    input.addEventListener("input", () => render(input.value));
-    render("");
+    this._renderShelf = () => render(input.value);
+    all.addEventListener("click",()=>{ this._libraryAll=!this._libraryAll;render(input.value); });
+    status.addEventListener("change",()=>{this._status=status.value;render(input.value);});
+    let searchTimer;
+    input.addEventListener("input",()=>{this._searchQuery=input.value;window.clearTimeout(searchTimer);searchTimer=window.setTimeout(()=>render(input.value),120);});
+    render(input.value);
     this._coverResizeObs = new ResizeObserver(() => this._sizeCovers());
     this._coverResizeObs.observe(grid);
     erAutoFocus(input, 60);
     erBlurOnTapOutside(this.contentEl, input);
+  }
+  openReadingSettings() {
+    const plugin = this.plugin;
+    const readers = () => [plugin._openReaderModal, ...this.app.workspace.getLeavesOfType(VIEW_TYPE).map(leaf=>leaf.view)].filter(view=>view?.bookHtml && !view._closed);
+    const proxy = { app:this.app, plugin, _librarySettings:true, _readers:readers,
+      repaginate: async () => { for (const reader of readers()) { reader.applyVars?.(); reader._applyTheme?.(); await (reader.repaginate?.() || reader._repaginate?.()); } },
+      _applyTheme: () => { for (const reader of readers()) { reader.applyVars?.(); reader._applyTheme?.(); } },
+      onSettingsClose: () => this._refresh(),
+    };
+    new ReadSettingsModal(this.app, proxy).open();
+  }
+  async refreshBooks() {
+    await this.plugin._hlChain; await this.plugin._writes?.progress; await this.plugin._libraryChain;
+    this.plugin.progress = await this.plugin._loadProgressFromVault();
+    this.plugin.highlights = await this.plugin._loadHighlightsFromVault();
+    return this._refresh();
+  }
+  createFolder() {
+    const parent = this._folderId || "";
+    if (folderTrail(this.plugin.library,parent).length >= 5) { new Notice("Допустимо не более пяти уровней папок"); return; }
+    new LibraryNameModal(this.app,"Новая папка","",async name => {
+      const id=await this.plugin.editLibrary(data=>addLibraryFolder(data,name,parent));
+      if(id)this._renderShelf?.();return !!id;
+    }).open();
+  }
+  chooseBookFolder(file) {
+    new LibraryFolderPicker(this.app,this.plugin,async id=>{if(await this.plugin.editLibrary(data=>placeLibraryBook(data,file.path,id)))this._renderShelf?.();}).open();
+  }
+  renderFolderCard(grid, folder, count, navigate) {
+    const card = grid.createDiv("er-lib-card er-lib-folder-card");
+    const open = card.createEl("button", { cls:"er-lib-folder-open" });open.setAttribute("aria-label",`Открыть папку ${folder.name}`);
+    const cover = open.createDiv("er-lib-cover er-lib-folder-cover");
+    cover.createSpan({cls:"er-lib-folder-icon",text:"📁"});
+    const info = open.createDiv("er-lib-info");
+    info.createDiv({cls:"er-lib-book-title er-lib-folder-name",text:folder.name});
+    info.createDiv({cls:"er-lib-book-meta er-lib-folder-count",text:`${count} книг`});
+    open.addEventListener("click",()=>navigate(folder.id));
+    const menuButton=card.createEl("button",{cls:"er-lib-folder-more",text:"⋯"});menuButton.setAttribute("aria-label",`Действия с папкой ${folder.name}`);
+    const showMenu=e=>{
+      e.preventDefault();const menu=new Menu();
+      menu.addItem(item=>item.setTitle("Переименовать папку").setIcon("pencil").onClick(()=>new LibraryNameModal(this.app,"Название папки",folder.name,async name=>{const ok=await this.plugin.editLibrary(data=>renameLibraryFolder(data,folder.id,name));if(ok)this._renderShelf?.();return !!ok;}).open()));
+      menu.addItem(item=>item.setTitle("Переместить папку…").setIcon("folder-input").onClick(()=>new LibraryFolderPicker(this.app,this.plugin,async id=>{if(await this.plugin.editLibrary(data=>moveLibraryFolder(data,folder.id,id)))this._renderShelf?.();},folder.id).open()));
+      menu.addItem(item=>item.setTitle("Удалить папку").setIcon("trash").onClick(()=>new ConfirmModal(this.app,{title:"Удалить виртуальную папку?",body:"Папка и её вложенные папки исчезнут из библиотеки. Книги останутся в хранилище и вернутся на главную, если у них нет других виртуальных папок.",okText:"Удалить папку",cancelText:"Отмена",onYes:async()=>{if(await this.plugin.editLibrary(data=>removeLibraryFolder(data,folder.id)))this._renderShelf?.();}}).open()));
+      menu.showAtMouseEvent(e);
+    };
+    menuButton.addEventListener("click",showMenu);card.addEventListener("contextmenu",showMenu);
+    card.draggable=true;card.addEventListener("dragstart",e=>{e.dataTransfer.setData("application/x-book-reader-folder",folder.id);e.dataTransfer.effectAllowed="move";});
+    card.addEventListener("dragover",e=>{if([...e.dataTransfer.types].some(type=>type.startsWith("application/x-book-reader-"))){e.preventDefault();e.stopPropagation();card.addClass("er-lib-folder-drop");}});
+    card.addEventListener("dragleave",()=>card.removeClass("er-lib-folder-drop"));
+    card.addEventListener("drop",async e=>{const book=e.dataTransfer.getData("application/x-book-reader-book"),moving=e.dataTransfer.getData("application/x-book-reader-folder");if(!book&&!moving)return;e.preventDefault();e.stopPropagation();card.removeClass("er-lib-folder-drop");if(await this.plugin.editLibrary(data=>book ? placeLibraryBook(data,book,folder.id) : moveLibraryFolder(data,moving,folder.id)))this._renderShelf?.();});
   }
   // Open the OS file picker for the three supported formats, then import.
   _pickBooks() {
@@ -8372,7 +8548,7 @@ const LibraryModal = class extends Modal {
         const nm = (f && f.name) || (f && f.path) || "?";
         return `${nm} [${extOf(f) || "—"}${f && f.type ? ", " + f.type : ""}]`;
       }).join("; ");
-      console.warn("Book Reader: rejected on import —", rejected.map((f) => ({
+      console.warn("Curd Reader: rejected on import —", rejected.map((f) => ({
         name: f && f.name, path: f && f.path, type: f && f.type, size: f && f.size, seenAs: extOf(f),
       })));
       new Notice(__ertr("Не подошли ({0}): {1}. Поддерживаются PDF, EPUB и FB2.", rejected.length, detail), 10000);
@@ -8393,7 +8569,7 @@ const LibraryModal = class extends Modal {
         await this.app.vault.createBinary(this._freeBookPath(dir, f.name), buf);
         ok++;
       } catch (err) {
-        console.warn("Book Reader: could not import", f && f.name, err);
+        console.warn("Curd Reader: could not import", f && f.name, err);
         errors.push(f.name);
       }
     }
@@ -8403,29 +8579,39 @@ const LibraryModal = class extends Modal {
   }
   // Rebuild the library in place after books were added, without a modal flash.
   _refresh() {
-    if (this._coverResizeObs) { try { this._coverResizeObs.disconnect(); } catch { /* optional step; a failure here must not interrupt reading */ } }
-    this.contentEl.empty();
-    this.onOpen();
+    if(this._refreshTask)return this._refreshTask;
+    this._refreshTask=(async()=>{
+      this._coverResizeObs?.disconnect();this._accessibilityObserver?.disconnect();this._accessibilityObserver=null;
+      window.clearTimeout(this._thumbSaveT);if(this._thumbDirty){this._thumbDirty=false;await this.plugin._saveThumbCache();}
+      const scroll = this._grid?.scrollTop || 0;
+      this.contentEl.empty();await this.onOpen();
+      if (this._grid && !this._libClosed) this._grid.scrollTop=scroll;
+    })().finally(()=>{this._refreshTask=null;});
+    return this._refreshTask;
   }
   _sizeCovers() {
     if (!this._grid) return;
-    // The cover div gets its 2:3 box from CSS `aspect-ratio:2/3`. This is only a
-    // FALLBACK: if a webview ever ignores aspect-ratio (height comes out far from
-    // 2:3), pin an explicit px height; otherwise leave the CSS value alone so a
-    // mis-timed early measurement can't squash a correct cover.
+    // Once a fallback is needed, retain it and update only when width changes.
+    // Removing a successful fallback would restore the broken CSS height and
+    // cause ResizeObserver to alternate between the two layouts indefinitely.
+    const updates = [];
     this._grid.querySelectorAll(".er-lib-cover").forEach((c) => {
       const w = c.offsetWidth;
       if (!w) return;
       const h = c.offsetHeight;
-      if (h < w * 1.35 || h > w * 1.65) c.style.setProperty("height", Math.round(w * 1.5) + "px", "important");
-      else c.style.removeProperty("height");
+      if (c.style.getPropertyValue("height") || h < w * 1.35 || h > w * 1.65) {
+        const height = Math.round(w * 1.5) + "px";
+        if (c.style.getPropertyValue("height") !== height) updates.push([c,height]);
+      }
     });
+    for (const [cover,height] of updates) cover.style.setProperty("height",height,"important");
   }
   renderCard(grid, file) {
     let _a, _b;
     const prog = this.plugin.getProgress(file.path);
     const pct = (_a = prog == null ? void 0 : prog.percent) != null ? _a : 0;
     const card = grid.createDiv("er-lib-card");
+    card.draggable=true;card.addEventListener("dragstart",e=>{e.dataTransfer.setData("application/x-book-reader-book",file.path);e.dataTransfer.effectAllowed="move";});
     const cover = card.createDiv("er-lib-cover");
     const fits = ((_b = this.plugin.settings.coverFits) != null ? _b : (this.plugin.settings.coverFits = {}));
     if (fits[file.path] === "fill") cover.addClass("er-fit-fill");
@@ -8472,6 +8658,7 @@ const LibraryModal = class extends Modal {
       const menu = new Menu();
       // «Читать» тут не нужно: по карточке и так открывается книга, а меню
       // и без того длинное — в него добавляет свои пункты сам Obsidian.
+      menu.addItem(item=>item.setTitle("Переместить в папку библиотеки…").setIcon("folder-input").onClick(()=>this.chooseBookFolder(file)));
       addBookFileMenu(this.app, menu, file);
       menu.addSeparator();
       menu.addItem((it) => it.setTitle(__ertr("Удалить книгу")).setIcon("trash").onClick(() => {
@@ -8490,6 +8677,7 @@ const LibraryModal = class extends Modal {
     });
   }
   async loadThumb(file, coverEl, ph) {
+    watchReaderControls(this);
     // A cover named in the book's note wins over everything.
     //
     // Asked for plainly: "хотелось бы для каждой книги выбирать обложку через
@@ -8498,8 +8686,11 @@ const LibraryModal = class extends Modal {
     // красиво, а у некоторых книг обложки оставляют желать лучшего." Читается
     // свойство `cover` (или `обложка`) — ссылка, путь к файлу в хранилище или
     // вики-ссылка. Ничего не кэшируется: правка свойства видна сразу.
+    this._thumbClosed = false;
     const own = this.coverFromBookNote(file);
     if (own) { this.showImg(coverEl, ph, own); return; }
+    const fingerprint = `${file.stat?.mtime || 0}:${file.stat?.size || 0}`;
+    if (this.plugin.thumbMeta[file.path]?.fingerprint !== fingerprint) delete this.plugin.thumbCache[file.path];
     // Cached cover → show immediately (this is the common path once generated).
     if (this.plugin.thumbCache[file.path]) {
       this.showImg(coverEl, ph, this.plugin.thumbCache[file.path]);
@@ -8510,7 +8701,8 @@ const LibraryModal = class extends Modal {
     // 30–75 MB — and each used to call saveAll()) overloaded the single PDF
     // worker and raced a dozen concurrent data.json writes, which left the whole
     // library with blank covers when many books were added. Serialising fixes it.
-    this._thumbQueue = (this._thumbQueue || Promise.resolve()).then(async () => {
+    this._thumbQueue = (this._thumbQueue || Promise.resolve()).catch(() => {}).then(async () => {
+      if (this._thumbClosed) return;
       if (this.plugin.thumbCache[file.path]) { this.showImg(coverEl, ph, this.plugin.thumbCache[file.path]); return; }
       try {
         const url = file.extension === "pdf" ? await this.makePdfThumb(file)
@@ -8518,10 +8710,13 @@ const LibraryModal = class extends Modal {
           : await this.makeEpubThumb(file);
         if (!url) return;
         this.plugin.thumbCache[file.path] = url;
+        this.plugin.thumbMeta[file.path] = { fingerprint, used: Date.now() };
+        const expired = Object.keys(this.plugin.thumbCache).sort((a,b) => (this.plugin.thumbMeta[b]?.used || 0) - (this.plugin.thumbMeta[a]?.used || 0)).slice(256);
+        for (const path of expired) { delete this.plugin.thumbCache[path]; delete this.plugin.thumbMeta[path]; }
         this._thumbDirty = true;
         this.showImg(coverEl, ph, url);
       } catch (e) {
-        console.warn("Book Reader: cover failed for", file.path, e);
+        console.warn("Curd Reader: cover failed for", file.path, e);
       }
     }).then(() => {
       // Persist once the chain goes idle (debounced), not after every single
@@ -8548,7 +8743,7 @@ const LibraryModal = class extends Modal {
       const raw = fm.cover ?? fm.обложка ?? fm.Cover ?? fm.Обложка;
       const val = String(Array.isArray(raw) ? raw[0] : (raw ?? "")).trim();
       if (!val) return null;
-      if (/^https?:\/\//i.test(val)) return val;
+      if (/^https?:\/\//i.test(val)) return this.plugin.settings.allowRemoteCovers ? val : null;
       const inner = (val.match(/^!?\[\[([^\]|#]+)/) || [])[1] || val;
       const img = this.app.metadataCache.getFirstLinkpathDest(inner.trim(), note.path)
         || this.app.vault.getAbstractFileByPath(erPath(inner.trim()));
@@ -8578,9 +8773,11 @@ const LibraryModal = class extends Modal {
       // Книга — чужой файл. У pdf.js есть известная дыра, где специально
       // собранный шрифт выполняет свой код через eval; отключение eval —
       // штатное лечение от неё (CVE-2024-4367). На вёрстку не влияет.
+      ...pdfResources(this.app),
       isEvalSupported: false,
     });
-    const doc = await task.promise;
+    try {
+    const doc = await bounded(task.promise, 30000, { cancel: () => { task.destroy().catch(() => {}); } });
     const page = await doc.getPage(1);
     // Render crisp (~520px wide), flattened onto white, capped so the cached
     // data-URL stays small. Old version used scale 0.5 \u2192 blurry thumbnails.
@@ -8593,14 +8790,15 @@ const LibraryModal = class extends Modal {
     const ctx = cv.getContext("2d");
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, cv.width, cv.height);
-    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    const render = page.render({ canvasContext: ctx, viewport: vp });
+    await bounded(render.promise, 15000, { cancel: () => render.cancel() });
     const url = cv.toDataURL("image/jpeg", 0.85);
     // Документ закрывается через свою задачу загрузки: в pdf.js 6 у самого
     // документа метода destroy больше нет, и вызов старого валил всю функцию
     // ПОСЛЕ того, как обложка уже нарисована — картинка была готова и
     // выбрасывалась. Уборка не имеет права отменять результат, поэтому в try.
-    try { await task.destroy(); } catch { /* optional step; a failure here must not interrupt reading */ }
     return url;
+    } finally { await task.destroy().catch(() => {}); }
   }
   // FB2 keeps its cover as a base64 <binary>, so the "thumbnail" is already a
   // data URL — no rendering needed. Falls back to the first image in the file
@@ -8623,32 +8821,24 @@ const LibraryModal = class extends Modal {
   async makeEpubThumb(file) {
     const buf = await this.app.vault.readBinary(file);
     const book = ePub(buf);
-    await book.ready;
-    // Read the cover straight out of the unpacked EPUB.
-    //
-    // This used to go through book.coverUrl(), which hands back a blob: URL that
-    // then had to be read with fetch(). Nothing left the device either way — the
-    // blob was made from the file already in memory — but a fetch() sitting in a
-    // plugin is a thing reviewers have to stop and check, and requestUrl() can't
-    // read blob: URLs. Asking the archive directly removes the question: there is
-    // no URL and no request, just the bytes epub.js already has.
-    const coverPath = await book.loaded.cover;
-    if (!coverPath) { book.destroy(); throw new Error("no cover"); }
-    const archive = book.archive;
-    if (!archive || typeof archive.getBase64 !== "function") {
-      book.destroy();
-      throw new Error("epub archive unavailable");
-    }
-    const dataUrl = await archive.getBase64(coverPath);
-    book.destroy();
-    if (!dataUrl) throw new Error("no cover");
-    return dataUrl;
+    try {
+      await bounded(book.ready, 30000, { cancel: () => book.destroy() });
+      const coverPath = await bounded(book.loaded.cover, 15000);
+      if (!coverPath || !book.archive) throw new Error("no cover");
+      const dataUrl = await bounded(book.archive.getBase64(coverPath), 15000);
+      if (!dataUrl) throw new Error("no cover");
+      return dataUrl;
+    } finally { book.destroy(); }
   }
+
   onClose() {
+    this._libClosed = true; this._libGeneration = (this._libGeneration || 0) + 1; this._renderShelf = null;
+    this._thumbClosed = true;
     // Flush any covers generated this session before the library closes.
     window.clearTimeout(this._thumbSaveT);
-    if (this._thumbDirty) { this._thumbDirty = false; this.plugin.saveAll(); }
+    if (this._thumbDirty) { this._thumbDirty = false; this.plugin._saveThumbCache(); }
     this._coverResizeObs?.disconnect();
+    this._accessibilityObserver?.disconnect(); this._accessibilityObserver = null;
     this.contentEl.empty();
   }
 };
@@ -8662,7 +8852,7 @@ const LibraryModal = class extends Modal {
 // it can be maximised like any other. Same code draws both: the drawing never
 // cared whether it lived in a dialog, only that it had an element to draw into
 // and a way to close itself.
-const LIB_VIEW_TYPE = "elton-library";
+const LIB_VIEW_TYPE = "curd-reader-library";
 const LibraryView = class extends ItemView {
   constructor(leaf, plugin) {
     super(leaf);
@@ -8682,10 +8872,8 @@ const LibraryView = class extends ItemView {
   // nothing to close, and detaching would take the book's own tab with it on a
   // narrow layout. Staying open is also simply more useful here.
   close() { /* a tab stays put */ }
-  onClose() {
-    if (this._coverResizeObs) { try { this._coverResizeObs.disconnect(); } catch { /* already gone */ } }
-    this.contentEl.empty();
-  }
+  onClose() { LibraryModal.prototype.onClose.call(this); }
+
 };
 // Everything the library draws lives on LibraryModal's prototype. Borrow it
 // wholesale rather than duplicating 500 lines that would then drift apart.
@@ -8706,7 +8894,7 @@ const ReaderModal = class extends Modal {
     this.pager   = new Paginator();
     this.pager.onSpreadChange = (cur, tot) => {
       (this.updateUI || this._updateUI).call(this, cur, tot);
-      if (this.file) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
+      if (this.file && !this._loading && !this._layoutTask && !this._closed) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
     };
     this.bookHtml = "";
     this.tocItems = [];
@@ -8770,7 +8958,7 @@ const ReaderModal = class extends Modal {
     // `.modal-header-button` with a `lucide-x` icon inside our own modal, zero
     // `.modal-close-button` anywhere. The old name stays for older Obsidian.
     const CLOSE_BTNS = ".modal-close-button, .modal-header-button";
-    const dropStrayCloses = (all) => {
+    const dropStrayCloses = () => {
       try {
         for (const b of docOf(modalEl).querySelectorAll(CLOSE_BTNS)) {
           const own = b.closest(".modal-container");
@@ -8779,15 +8967,15 @@ const ReaderModal = class extends Modal {
           // whose container was not the node we knew about — which is exactly the
           // case that survives if the mobile build nests the dialog differently,
           // and it did survive. Afterwards the rule tightens again.
-          if (all || !own || own === this.containerEl) b.remove();
+          if (own === this.containerEl || this.modalEl.contains(b)) b.remove();
         }
       } catch { /* nothing to remove is a perfectly good outcome */ }
     };
-    dropStrayCloses(true);
+    dropStrayCloses();
     // Wrapped, not passed straight in: a MutationObserver hands its callback the
     // list of records, which is truthy — the sweep-everything flag would have
     // been on for every mutation, and other dialogs would lose their ✕ too.
-    this._closeWatch = new MutationObserver(() => dropStrayCloses(false));
+    this._closeWatch = new MutationObserver(() => dropStrayCloses());
     this._closeWatch.observe(docOf(modalEl).body, { childList: true, subtree: true });
     this._applyTheme();
     this._buildDOM();
@@ -8926,15 +9114,15 @@ const ReaderModal = class extends Modal {
     this.areaEl.addEventListener("click", (e) => {
       // A footnote reference wins over everything else on the page: the reader
       // tapped a number, not the paragraph behind it.
-      const refEl = e.target instanceof HTMLElement ? e.target.closest("[data-er-ref]") : null;
+      const refEl = e.target?.nodeType === 1 ? e.target.closest("[data-er-ref]") : null;
       if (refEl) {
         e.preventDefault();
         e.stopPropagation();
         if (followFootnote(this, refEl.getAttribute("data-er-ref"))) return;
       }
-      const imgEl = e.target instanceof HTMLElement ? e.target.closest("img") : null;
+      const imgEl = e.target?.nodeType === 1 ? e.target.closest("img") : null;
       if (imgEl && imgEl.src) { e.preventDefault(); openImageLightbox(imgEl.currentSrc || imgEl.src, this.app, imgEl); return; }
-      const span = e.target instanceof HTMLElement ? e.target.closest(".er-hl") : null;
+      const span = e.target?.nodeType === 1 ? e.target.closest(".er-hl") : null;
       if (span) { e.preventDefault(); this._openHlEdit(span.getAttribute("data-hl-id")); }
       else if (this._editHlId) this._hideHlPopup();
     });
@@ -8993,23 +9181,28 @@ const ReaderModal = class extends Modal {
   async _applyContentStyle() {
     await this._repaginate();
   }
-  async _repaginate() {
+  _repaginate() {
+    if (this._loading || this._closed) return Promise.resolve();
+    if (this._layoutTask) { this._layoutAgain = true; return this._layoutTask; }
+    this._layoutTask = (async () => {
+      do { this._layoutAgain = false; await this._repaginateNow(); } while (this._layoutAgain && !this._closed && !this._loading);
+    })().finally(() => { this._layoutTask = null; });
+    return this._layoutTask;
+  }
+  async _repaginateNow() {
     if (!this.bookHtml || !this.areaEl || !this.areaEl.clientWidth) return;
     // Anchor on the paragraph, not the percentage — see the desktop repaginate().
     // Here it matters on font-size changes and screen rotation.
     const savedBlock = this.pager.currentBlockIndex();
-    const savedPct = this.pager.currentPct;
     // Re-flowing necessarily lays the book out from spread 0 before it can jump
     // back to where the reader was. Unhidden, that is a page they can see change
     // twice — the same flicker the opening sequence hides for the same reason.
     this.areaEl.addClass("er-booting");
     erShowVeil(this);
-    const [, total] = await this.pager.build(this.areaEl, this.bookHtml, this.plugin.settings, 0);
-    const target = (typeof savedBlock === "number" && savedBlock >= 0)
-      ? this.pager.spreadForBlock(savedBlock)
-      : Math.round(savedPct * Math.max(0, total - 1));
+    await this.pager.build(this.areaEl, this.bookHtml, this.plugin.settings, 0);
     this._renderFlowHighlights();
-    const [cur, tot] = this.pager.jumpTo(target);
+    if (this._closed || this._loading) return;
+    const [cur, tot] = this.pager.jumpToBlock(savedBlock);
     erRevealWhenSettled(this);
     this._updateUI(cur, tot);
     // Everything below is tied to the block elements that were just replaced:
@@ -9019,7 +9212,8 @@ const ReaderModal = class extends Modal {
     this._findCorpus = null;
     if (this._foundQuery) this._markFound(this._foundQuery);
   }
-  async _loadBook() {
+  _loadBook() { return beginReaderLoad(this, signal => this._readBook(signal)); }
+  async _readBook(signal) {
     this.areaEl.empty();
     const loading = this.areaEl.createDiv("er-loading");
     loading.addClass("er-centered");
@@ -9032,20 +9226,22 @@ const ReaderModal = class extends Modal {
       this._pdfLazy?.destroy?.();
       this._pdfLazy = null;
       if (this.ext === "epub") {
-        this.bookHtml = await extractEpub(this.file, this.app);
+        this.bookHtml = await extractEpub(this.file, this.app, { signal, onProgress: (i, n) => loadText.setText(__ertr("Готовим книгу… {0}%", Math.round(i / n * 100))) });
       } else if (this.ext === "fb2") {
-        this.bookHtml = await extractFb2(this.file, this.app);
+        this.bookHtml = await extractFb2(this.file, this.app, signal);
       } else {
-        const res = await extractPdf(this.file, this.app, this.plugin.settings, (i, n) => loadText.setText(__ertr("Готовим книгу… {0}%", (Math.round(i / n * 100)))));
+        const res = await extractPdf(this.file, this.app, this.plugin.settings, (i, n) => loadText.setText(__ertr("Готовим книгу… {0}%", (Math.round(i / n * 100)))), signal);
         this.bookHtml = res.html;
         this._pdfLazy = res.lazy;
         this._pdfOutline = res.outline;
       }
       // TOC anchored to the global block index \u2192 tap jumps to that page.
+      checkAbort(signal);
       this.tocItems = buildTocItems(this.bookHtml, this._pdfOutline);
       this._buildTocPanel();
       await this.plugin.refreshHighlights();
       await this.plugin.refreshProgress();
+      checkAbort(signal);
       const saved = this.plugin.getProgress(this.file.path);
       const pct = (saved == null ? void 0 : saved.pct) != null ? saved.pct : 0;
       this.areaEl.addClass("er-booting");
@@ -9062,7 +9258,8 @@ const ReaderModal = class extends Modal {
         ? this.pager.spreadForBlock(saved.block)
         : Math.round(pct * Math.max(0, this.pager.total - 1));
       this._renderFlowHighlights();
-      const [cur, tot] = this.pager.jumpTo(target);
+      checkAbort(signal);
+      const [cur, tot] = hasBlock ? this.pager.jumpToBlock(resolveAnchor(this.pager.flow, saved.anchor, saved.block)) : this.pager.jumpTo(target);
       this._updateUI(cur, tot);
       // Not one frame — the dialog can still be settling on a phone, and a
       // re-flow landing after the reveal is a page the reader watches change.
@@ -9075,6 +9272,7 @@ const ReaderModal = class extends Modal {
       // at all before, so a phone-only reader had no way into this.
       this._maybePromptBookNote(this.file);
     } catch (e) {
+      if (e.name === "AbortError") return;
       console.error("ReaderModal:", e);
       this.areaEl.empty();
       this.areaEl.createEl("p", { cls: "er-load-error", text: __ertr("Ошибка: {0}", e.message) });
@@ -9101,9 +9299,9 @@ const ReaderModal = class extends Modal {
   // Jump to the page holding a global block index, flash it, save the position.
   _jumpToBlock(block, flash = true) {
     if (!this.bookHtml) return;
-    const [cur, tot] = this.pager.jumpTo(this.pager.spreadForBlock(block));
+    const [cur, tot] = this.pager.jumpToBlock(block);
     this._updateUI(cur, tot);
-    if (this.file) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
+    if (this.file && !this._loading && !this._layoutTask && !this._closed) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
     if (flash) this._flashBlock(block);
   }
   // Briefly highlight the paragraph the reader resumed at.
@@ -9113,39 +9311,22 @@ const ReaderModal = class extends Modal {
   // seconds instead of polling forever on a book that failed to open.
   // Land on a PDF page once the book is laid out. Pages are marked in the flow
   // with data-pdf-page-no, so this is a lookup rather than a guess.
-  jumpToPdfPageWhenReady(pageNo) {
-    let tries = 0;
-    const tick = () => {
-      const flow = this.pager && this.pager.flow;
-      if (flow && this.pager.total) {
-        const el = flow.querySelector(`[data-pdf-page-no="${pageNo}"]`);
-        if (el) {
-          const x = el.getBoundingClientRect().left - flow.getBoundingClientRect().left;
-          const stride = this.pager.sw / (this.pager.cols || 1);
-          const spread = Math.floor(Math.round(x / stride) / (this.pager.cols || 1));
-          const [cur, tot] = this.pager.jumpTo(Math.max(0, Math.min(spread, this.pager.total - 1)));
-          (this.updateUI || this._updateUI).call(this, cur, tot);
-          return;
-        }
-      }
-      if (++tries > 40) return;
-      window.setTimeout(tick, 100);
-    };
-    tick();
+  async jumpToPdfPageWhenReady(pageNo) {
+    await this._loadTask;
+    await this.pager._buildChain;
+    if (this._closed || !this.pager.flow) return;
+    const target = this.pager.flow.querySelector(`[data-pdf-page-no="${pageNo}"]`);
+    if (!target) { new Notice(__ertr("Страница не найдена")); return; }
+    const [cur, total] = this.pager.jumpToElement(target);
+    (this.updateUI || this._updateUI).call(this, cur, total);
   }
-  jumpToBlockWhenReady(idx) {
-    let tries = 0;
-    const tick = () => {
-      if (this.pager && this.pager.flow && this.pager.total) {
-        const [cur, tot] = this.pager.jumpTo(this.pager.spreadForBlock(idx));
-        (this.updateUI || this._updateUI).call(this, cur, tot);
-        this._flashBlock(idx);
-        return;
-      }
-      if (++tries > 40) return;
-      window.setTimeout(tick, 100);
-    };
-    tick();
+  async jumpToBlockWhenReady(idx) {
+    await this._loadTask;
+    await this.pager._buildChain;
+    if (this._closed || !this.pager.blockEl(idx)) return;
+    const [cur, total] = this.pager.jumpToBlock(idx);
+    (this.updateUI || this._updateUI).call(this, cur, total);
+    this._flashBlock(idx);
   }
   _flashBlock(idx) {
     const el = this.pager.blockEl(idx);
@@ -9168,9 +9349,10 @@ const ReaderModal = class extends Modal {
     this._updateUI(cur, total);
     this.plugin.saveProgress(this.file.path, cur, total, this.pager.currentBlockIndex());
   }
-  saveNow() {
+  async saveNow() {
     if (!this.bookHtml || !this.file) { new Notice(__ertr("Нечего сохранять")); return; }
-    const pct = this.plugin.saveNow(this.file.path, this.pager.spread, this.pager.total, this.pager.currentBlockIndex());
+    const pct = await this.plugin.saveNow(this.file.path, this.pager.spread, this.pager.total, this.pager.currentBlockIndex());
+    if (pct === null) return;
     new Notice(__ertr("Сохранено ✓ — {0}%", (pct)));
     if (this.panelOpen === "settings") this._renderHistory();
   }
@@ -9248,7 +9430,7 @@ const ReaderModal = class extends Modal {
     const ffRow = adv.createDiv("er-ff-row");
     Object.keys(FONTS).forEach(ff => {
       const btn = ffRow.createDiv("er-ff-btn");
-      btn.setText(ff); btn.style.fontFamily = FONTS[ff];
+      btn.setText(ff === "georgia" ? "Georgia" : `${ff} (установленный)`); btn.style.fontFamily = FONTS[ff];
       if (this.plugin.settings.fontFamily === ff) btn.addClass("active");
       btn.addEventListener("click", async () => {
         this.plugin.settings.fontFamily = ff;
@@ -9284,34 +9466,7 @@ const ReaderModal = class extends Modal {
     actBtn.addEventListener("click", () => { this._closePanel(); new InfoModal(this.app, this.plugin, this.file).open(); });
   }
   _renderHistory() {
-    const c = this._histRow;
-    if (!c) return;
-    c.empty();
-    const list = this.file ? this.plugin.getBackups(this.file.path) : [];
-    // Keep the collapsed header's counter in step with the list inside it.
-    const badge = c.parentElement && c.parentElement._erCount;
-    if (badge) badge.setText(list.length ? String(list.length) : "");
-    if (!list.length) { c.createDiv("er-hist-empty").setText(__ertr("Точек пока нет")); return; }
-    [...list].reverse().slice(0, 14).forEach((snap) => {
-      const chip = c.createDiv("er-hist-chip");
-      if (snap.manual) chip.addClass("er-hist-manual");
-      const d = new Date(snap.ts || snap.lastRead || Date.now());
-      const mark = snap.manual ? "💾 " : "";
-      chip.setText(`${mark}${snap.percent}% · ${d.toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}`);
-      chip.addEventListener("click", () => {
-        if (!this.bookHtml) return;
-        this._closePanel();
-        if (typeof snap.block === "number" && snap.block >= 0) {
-          this._jumpToBlock(snap.block);
-        } else {
-          const frac = typeof snap.pct === "number" ? snap.pct : (snap.percent || 0) / 100;
-          const [cur, tot] = this.pager.jumpTo(Math.round(frac * Math.max(0, this.pager.total - 1)));
-          this._updateUI(cur, tot);
-          if (this.file) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
-        }
-        new Notice(__ertr("Вернулись к {0}%", (snap.percent)));
-      });
-    });
+    if (this._histRow) renderReadingHistory(this, this._histRow);
   }
   _buildTocPanel() {
     this._tocRender = buildTocPanelFor(this, this.tocPan, {
@@ -9335,6 +9490,7 @@ const ReaderModal = class extends Modal {
     this.panelOpen = name;
     this.settPan.classList.toggle("er-panel-open", name === "settings");
     this.tocPan.classList.toggle("er-panel-open", name === "toc");
+    if (name === "toc") this._tocWidget?.open();
     this.hlPan.classList.toggle("er-panel-open", name === "highlights");
     this.overlayEl.classList.add("er-overlay-on");
   }
@@ -9353,10 +9509,10 @@ const ReaderModal = class extends Modal {
   _renderFlowHighlights() {
     if (!this.file || !this.pager.flow) return;
     unwrapAllHighlights(this.pager.flow);
-    const blocks = this.pager.flow.querySelectorAll("p,h1,h2,h3,h4");
+    const blocks = readerBlocks(this.pager.flow);
     const list = this.plugin.getHighlights(this.file.path);
     for (const hl of list) {
-      const block = blocks[hl.block];
+      const block = blocks[resolveAnchor(this.pager.flow, hl.anchor, hl.block)];
       if (!block) continue;
       const text = block.textContent;
       const loc = locateHl(text, hl);
@@ -9377,9 +9533,10 @@ const ReaderModal = class extends Modal {
     if (!flow || !flow.contains(range.startContainer)) { this._hideHlPopup(); return; }
     let node = range.startContainer;
     if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
-    const block = node ? node.closest("p,h1,h2,h3,h4") : null;
+    const block = node ? blockOwner(node, flow) : null;
     if (!block || !flow.contains(block)) { this._hideHlPopup(); return; }
-    const blocks = [...flow.querySelectorAll("p,h1,h2,h3,h4")];
+    const addressBlocks = readerBlocks(flow);
+    const blocks = [...addressBlocks].sort((a, b) => a.compareDocumentPosition(b) & 4 ? -1 : 1);
     const blockIndex = blocks.indexOf(block);
     if (blockIndex < 0) { this._hideHlPopup(); return; }
     // A selection can cross paragraphs, and it used to be cut off at the end of
@@ -9399,7 +9556,7 @@ const ReaderModal = class extends Modal {
         const seg = bText.slice(from, to);
         if (seg.trim()) {
           parts.push({
-            block: bi,
+            block: addressBlocks.indexOf(b),
             occ: countOccurrencesBefore(bText, seg, from),
             text: seg,
             pre: bText.slice(Math.max(0, from - 32), from),
@@ -9439,7 +9596,16 @@ const ReaderModal = class extends Modal {
     if (this._pendingSel && this.file) {
       // One highlight per paragraph the selection covered.
       const parts = this._pendingSel.parts || [this._pendingSel];
-      for (const part of parts) this._createHighlight(part, colorId);
+      const made = [];
+      for (const part of parts) {
+        const id = this._createHighlight(part, colorId);
+        if (id) made.push({ ...part, id, color: colorId });
+      }
+      if (this.plugin.settings.quotesToBookNote === true && made.length) {
+        this._hlExportChain = (this._hlExportChain || Promise.resolve()).then(async () => {
+          for (const hl of made) await sendQuoteToBookNote(this, hl);
+        }).catch(error => console.error("Curd Reader: automatic export failed", error));
+      }
       selOf(this.areaEl)?.removeAllRanges();
       if (this.panelOpen === "highlights") this._buildHlPanel();
     }
@@ -9450,10 +9616,11 @@ const ReaderModal = class extends Modal {
   _createHighlight(sel, colorId) {
     if (!sel || !this.file) return null;
     const id = "h" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const hl = { id, color: colorId, text: sel.text, block: sel.block, occ: sel.occ, pre: sel.pre, post: sel.post, created: Date.now() };
+    const hl = { id, color: colorId, text: sel.text, block: sel.block, occ: sel.occ, pre: sel.pre, post: sel.post, group: sel.group, anchor: anchorFor(this.pager.blockEl(sel.block)), created: Date.now() };
     this.plugin.addHighlight(this.file.path, hl);
-    const blocks = this.pager.flow ? this.pager.flow.querySelectorAll("p,h1,h2,h3,h4") : [];
-    const block = blocks[hl.block];
+    const flow = this.pager.flow;
+    const blocks = readerBlocks(flow);
+    const block = blocks[resolveAnchor(this.pager.flow, hl.anchor, hl.block)];
     if (block) {
       const t = block.textContent;
       const loc = locateHl(t, hl);
@@ -9464,9 +9631,9 @@ const ReaderModal = class extends Modal {
   _currentHl() {
     if (this._editHlId && this.file) {
       const hl = this.plugin.getHighlights(this.file.path).find((h) => h.id === this._editHlId);
-      if (hl) return { text: hl.text || "", block: hl.block, color: hl.color };
+      if (hl) return { ...hl, text: hl.text || "" };
     }
-    if (this._pendingSel) return { text: this._pendingSel.text || "", block: this._pendingSel.block, color: null };
+    if (this._pendingSel) return { ...this._pendingSel, color: null };
     return null;
   }
   _openHlEdit(id) {
@@ -9500,10 +9667,11 @@ const ReaderModal = class extends Modal {
   goToHighlight(id) {
     const hl = this.file ? this.plugin.getHighlights(this.file.path).find((h) => h.id === id) : null;
     if (!hl) return;
+    const flow = this.pager.flow;
     this._closePanel();
-    const [cur, tot] = this.pager.jumpTo(this.pager.spreadForBlock(hl.block));
+    const [cur, tot] = this.pager.jumpToBlock(resolveAnchor(flow, hl.anchor, hl.block));
     this._updateUI(cur, tot);
-    if (this.file) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
+    if (this.file && !this._loading && !this._layoutTask && !this._closed) this.plugin.saveProgress(this.file.path, cur, tot, this.pager.currentBlockIndex());
     window.requestAnimationFrame(() => {
       const span = this.pager.flow?.querySelector(`[data-hl-id="${id}"]`);
       if (span) {
@@ -9566,6 +9734,7 @@ const ReaderModal = class extends Modal {
     });
   }
   onClose() {
+    closeReader(this);
     stopReadingTimer(this);
     if (this.plugin._openReaderModal === this) this.plugin._openReaderModal = null;
     // The search paint is a document-level highlight; it would outlive the book.
@@ -9651,7 +9820,7 @@ const SettingsTab = class extends PluginSettingTab {
   display() {
     const { containerEl: c } = this;
     c.empty();
-    c.createEl("h2", { text: "Book Reader" });
+    c.createEl("h2", { text: "Curd Reader" });
     const TABS = [
       { id: "read", label: __ertr("Чтение") },
       { id: "look", label: __ertr("Оформление") },
@@ -9851,7 +10020,7 @@ const SettingsTab = class extends PluginSettingTab {
     if (AI_PROVIDERS[s.aiProvider || "eltonlabs"].needsKey) {
       new Setting(c)
         .setName(__ertr("Ключ"))
-        .setDesc(__ertr("Хранится в настройках плагина, внутри вашего хранилища. Если хранилище синхронизируется, ключ едет вместе с ним — держите это в уме."))
+        .setDesc(__ertr("Хранится в защищённом хранилище секретов Obsidian. В файлы настроек и новые резервные копии не записывается. Требуется версия Obsidian с SecretStorage."))
         .addText((t) => {
           t.inputEl.type = "password";
           t.setPlaceholder("sk-…").setValue(s.aiKey || "").onChange(async (v) => {
@@ -10152,22 +10321,18 @@ const SettingsTab = class extends PluginSettingTab {
   }
   // ── Данные ────────────────────────────────────────────────────────────────
   _tabData(c) {
-    new Setting(c).setName(__ertr("Папка с книгами")).setDesc(__ertr("Пусто = весь vault")).addText((t) => {
+    new Setting(c).setName(__ertr("Папка для добавляемых книг")).setDesc(__ertr("Сюда сохраняются импортируемые книги. Библиотека показывает книги из всего хранилища.")).addText((t) => {
       t.setPlaceholder("0. Files/3. PDF-files").setValue(this.plugin.settings.booksFolder);
       attachPathInput(this.app, t, async (v) => {
-        this.plugin.settings.booksFolder = v;
-        await this.plugin._saveLocalData();
-        await this.plugin.saveAll();
+        await this.plugin.changeDataLocation("booksFolder", v);
       });
     });
     new Setting(c)
       .setName(__ertr("Папка данных чтения"))
-      .setDesc(__ertr("Где хранятся прогресс чтения, выделения и резервные копии (reading-progress.json, reading-highlights.json). Пусто — рядом с книгами (в «Папке с книгами»). Файлы синхронизируются вместе с хранилищем."))
+      .setDesc(__ertr("Где хранятся прогресс, выделения, виртуальные папки и резервные копии (reading-progress.json, reading-highlights.json, reading-library.json). Пусто — в папке для добавляемых книг, а если она не задана — в корне хранилища. Файлы синхронизируются вместе с хранилищем."))
       .addText((t) => { t.setPlaceholder(__ertr("Рядом с книгами")).setValue(this.plugin.settings.dataFolder || "");
         attachPathInput(this.app, t, async (v) => {
-          this.plugin.settings.dataFolder = v;
-          await this.plugin._saveLocalData();
-          await this.plugin.saveAll();
+          await this.plugin.changeDataLocation("dataFolder", v);
         }); });
 
     c.createEl("h3", { text: __ertr("Синхронизация между устройствами") });
@@ -10220,10 +10385,13 @@ const SettingsTab = class extends PluginSettingTab {
           this._redraw();
         }));
     if (this.plugin.settings.syncMode === "cloud") {
-      c.createEl("div", { cls: "er-set-note", text: __ertr("Облачные папки (iCloud/Drive) обновляются с задержкой. Если на одном устройстве вы только читаете — конфликтов не будет: плагин перечитывает прогресс при каждом открытии книги и аккуратно сливает выделения.") });
+      c.createEl("div", { cls: "er-set-note", text: __ertr("Облачные папки могут обновляться с задержкой. Прогресс перечитывается при открытии с повторной попыткой, записи объединяются. Одновременная запись с двух устройств всё ещё может вызвать конфликт службы синхронизации.") });
     }
 
     c.createEl("h3", { text: __ertr("Очистка") });
+    new Setting(c).setName("Внешние обложки").setDesc("Разрешить загрузку URL из свойства cover. Адрес запроса виден внешнему серверу; по умолчанию используются только локальные картинки.").addToggle(t => t.setValue(!!this.plugin.settings.allowRemoteCovers).onChange(async value => {
+      this.plugin.settings.allowRemoteCovers = value; await this.plugin._saveLocalData();
+    }));
     const thumbSet = new Setting(c).setName(__ertr("Кэш обложек")).setDesc(__ertr("Сохранено: {0}", (Object.keys(this.plugin.thumbCache).length))).addButton((b) => b.setButtonText(__ertr("Очистить")).onClick(async () => {
       this.plugin.thumbCache = {};
       await this.plugin._saveThumbCache();
@@ -10231,15 +10399,16 @@ const SettingsTab = class extends PluginSettingTab {
       thumbSet.setDesc(__ertr("Сохранено: {0}", 0));
     }));
     const progSet = new Setting(c).setName(__ertr("Прогресс")).setDesc(__ertr("Книг: {0}", (Object.keys(this.plugin.progress).length))).addButton((b) => b.setButtonText(__ertr("Очистить")).setWarning().onClick(async () => {
+      for (const path of Object.keys(this.plugin.progress)) this.plugin._deletedBooks.add(path);
       this.plugin.progress = {};
-      await this.plugin.saveAll();
+      if (!await this.plugin.saveAll()) return;
       new Notice(__ertr("Прогресс очищен"));
       progSet.setDesc(__ertr("Книг: {0}", 0));
     }));
     const hlCount = Object.values(this.plugin.highlights).reduce((s, a) => s + (Array.isArray(a) ? a.length : 0), 0);
     const hlSet = new Setting(c).setName(__ertr("Выделения")).setDesc(__ertr("Всего: {0}", (hlCount))).addButton((b) => b.setButtonText(__ertr("Очистить все")).setWarning().onClick(async () => {
       this.plugin.highlights = {};
-      await this.plugin._saveHighlightsToVault();
+      if (!await this.plugin._saveHighlightsToVault()) return;
       new Notice(__ertr("Выделения очищены"));
       hlSet.setDesc(__ertr("Всего: {0}", 0));
     }));
@@ -10259,7 +10428,7 @@ const SettingsTab = class extends PluginSettingTab {
     };
     const memSet = new Setting(c)
       .setName(__ertr("Память о книгах"))
-      .setDesc(__ertr("Книг: {0}. Привязанные заметки, категории, шаблоны отдельных книг и отметки «про заметку уже спрашивали». Сами заметки НЕ удаляются — читалка просто забывает связи и спросит про заметку заново при открытии каждой книги.", memCount()));
+      .setDesc(__ertr("Книг: {0}. Привязанные заметки, шаблоны отдельных книг и отметки «про заметку уже спрашивали». Сами заметки НЕ удаляются — читалка просто забывает связи и спросит про заметку заново при открытии каждой книги.", memCount()));
     let armed = false;
     memSet.addButton((b) => b.setButtonText(__ertr("Забыть все книги")).setWarning().onClick(async () => {
       // Two taps: this wipes links the reader made by hand, and an accidental
@@ -10279,7 +10448,7 @@ const SettingsTab = class extends PluginSettingTab {
       s.bookTemplates = {};
       await this.plugin.saveAll();
       new Notice(__ertr("Готово — читалка снова спросит про заметку при открытии книги"));
-      memSet.setDesc(__ertr("Книг: {0}. Привязанные заметки, категории, шаблоны отдельных книг и отметки «про заметку уже спрашивали». Сами заметки НЕ удаляются — читалка просто забывает связи и спросит про заметку заново при открытии каждой книги.", 0));
+      memSet.setDesc(__ertr("Книг: {0}. Привязанные заметки, шаблоны отдельных книг и отметки «про заметку уже спрашивали». Сами заметки НЕ удаляются — читалка просто забывает связи и спросит про заметку заново при открытии каждой книги.", 0));
     }));
   }
   // ── О плагине ─────────────────────────────────────────────────────────────
@@ -10288,9 +10457,9 @@ const SettingsTab = class extends PluginSettingTab {
     // It now sits above the tab bar, visible from every screen — see display().
     new Setting(c)
       .setName(__ertr("Пожелания и ошибки"))
-      .setDesc(__ertr("Всё, что хочется поменять или починить, собирается в телеграм-боте @book_in_obsidian_bot. Напишите ему обычным сообщением — ни аккаунта на GitHub, ни формы не нужно."))
-      .addButton((b) => b.setCta().setButtonText(__ertr("Написать в бота")).onClick(() => {
-        window.open("https://t.me/book_in_obsidian_bot", "_blank");
+      .setDesc(__ertr("Ошибки и предложения принимаются в GitHub Issues проекта Curd Reader. Для отправки нужен аккаунт GitHub."))
+      .addButton((b) => b.setCta().setButtonText(__ertr("Открыть GitHub Issues")).onClick(() => {
+        window.open("https://github.com/DK-0x3/curd-reader/issues", "_blank");
       }));
     new Setting(c)
       .setName(__ertr("Инструкция по плагину"))
@@ -10303,13 +10472,13 @@ const SettingsTab = class extends PluginSettingTab {
         new WhatsNewModal(this.app, this.plugin, WHATS_NEW.slice(0, 4)).open();
       }));
     const about = c.createEl("div", { cls: "er-set-note" });
-    about.createEl("b", { text: "Book Reader" });
-    about.appendText(__ertr(" — версия {0}. Автор: Elton.", this.plugin.manifest.version));
+    about.createEl("b", { text: "Curd Reader" });
+    about.appendText(__ertr(" — версия {0}. Автор: DK-0x3. Основано на Book Reader от Elton Labs.", this.plugin.manifest.version));
     about.createEl("br");
     about.appendText(__ertr("Обратная связь: "));
-    about.createEl("a", { text: "@book_in_obsidian_bot", href: "https://t.me/book_in_obsidian_bot" });
+    about.createEl("a", { text: "GitHub Issues", href: "https://github.com/DK-0x3/curd-reader/issues" });
     about.createEl("br");
-    about.createEl("a", { text: "t.me/eltonlabs", href: "https://t.me/eltonlabs" });
+    about.createEl("a", { text: "Original: Elton Labs", href: "https://github.com/swayinfo/elton-reader" });
   }
 };
 export default EltonReader;

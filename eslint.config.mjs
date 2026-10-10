@@ -3,12 +3,14 @@ import obsidianmd from "eslint-plugin-obsidianmd";
 // The community scanner runs this rule set against the repository and publishes
 // the result as a Scorecard, so warnings matter as much as errors here.
 export default [
+
   {
     ignores: ["main.js", "pdf.worker.js", "node_modules/**", "promo-video/**"],
   },
   ...obsidianmd.configs.recommended,
   {
     files: ["src/**/*.js"],
+    rules: { "no-undef": "error" },
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "module",
@@ -16,6 +18,7 @@ export default [
         // Replaced at build time by esbuild's `define` with the pdf.js worker
         // source, so it never exists as a variable in the shipped file.
         __PDF_WORKER_CODE__: "readonly",
+        __PDF_ASSETS__: "readonly",
         // CSS Custom Highlight API, used for the in-book search paint.
         Highlight: "readonly",
         // Provided by Obsidian at runtime rather than imported.
@@ -37,11 +40,19 @@ export default [
         HTMLElement: "readonly",
         Event: "readonly",
         ResizeObserver: "readonly",
+        MutationObserver: "readonly",
+        AbortController: "readonly",
         performance: "readonly",
         fetch: "readonly",
         Blob: "readonly",
         URL: "readonly",
       },
     },
+  },
+  {
+    // Build tools and test harness run in Node, never in the shipped plugin.
+    files: ["scripts/**/*.mjs", "tests/**/*.mjs"],
+    languageOptions: { globals: { process: "readonly", console: "readonly", URL: "readonly", AbortController: "readonly", TextEncoder: "readonly", setTimeout: "readonly", clearTimeout: "readonly" } },
+    rules: { "obsidianmd/no-nodejs-modules": "off", "obsidianmd/hardcoded-config-path": "off", "obsidianmd/rule-custom-message": "off" },
   },
 ];
