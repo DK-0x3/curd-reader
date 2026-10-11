@@ -2086,3 +2086,111 @@ body:not(.is-mobile) .er-bot {
 .er-lib-folder-count { font-size:10.5px; }
 .er-lib-book-meta { line-height:1.4; min-height:1.4em; }
 @keyframes er-card-in { from { opacity:0; } to { opacity:1; } }
+
+/* Constrain the scroll area and reset native mobile button dimensions. */
+.er-lib { min-width:0; min-height:0; }
+.er-lib .er-lib-grid { min-height:0; grid-auto-rows:max-content; }
+.er-lib .er-lib-folder-open,
+.er-lib .er-lib-folder-open:hover,
+.er-lib .er-lib-folder-open:active {
+  height:auto !important; min-height:0 !important; max-height:none !important;
+  padding:0 !important; display:block; white-space:normal;
+}
+.er-lib .er-lib-cover { flex:none; }
+.er-lib .er-lib-action { gap:5px; }
+.er-lib-size-label { font-size:11px; color:var(--er-lib-muted); align-self:center; margin-right:4px; }
+.er-lib .er-lib-szbtn { padding:0; box-shadow:none; }
+
+/* Also use the platform class: mobile WebViews need not report a narrow viewport. */
+.er-lib-mobile .er-lib-hdr {
+  display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px;
+  padding:12px; align-items:center;
+}
+.er-lib-mobile .er-lib-brand { margin:0; height:auto; min-width:0; }
+.er-lib-mobile .er-lib-title { font-size:19px; line-height:1.2; }
+.er-lib-mobile .er-lib-logo,.er-lib-mobile .er-lib-sub { display:none; }
+.er-lib-mobile .er-lib-add { grid-column:2; grid-row:1; height:40px; padding:0 10px; }
+.er-lib-mobile .er-lib-add-label { display:none; }
+.er-lib-mobile .er-lib-add svg { width:20px; height:20px; }
+.er-lib-mobile .er-lib-actions { grid-column:1; grid-row:2; margin:0; flex-wrap:nowrap; gap:6px; }
+.er-lib-mobile .er-lib-action {
+  height:40px; min-height:40px; min-width:40px; padding:0 9px;
+  font-size:14px; border-radius:9px; box-shadow:none;
+}
+.er-lib-mobile .er-lib-action svg { width:20px; height:20px; }
+.er-lib-mobile .er-lib-size { grid-column:2; grid-row:2; height:auto; gap:4px; }
+.er-lib-mobile .er-lib-size-label { display:none; }
+.er-lib-mobile .er-lib-szbtn { width:40px; height:40px; min-height:40px; font-size:19px; }
+.er-lib-mobile .er-lib-search { grid-column:1/-1; grid-row:3; width:100%; min-width:0; height:40px; box-sizing:border-box; }
+.er-lib-mobile .er-lib-search-input { min-width:0; width:100%; font-size:16px; }
+.er-lib-mobile .er-lib-count { grid-column:1/-1; display:block; padding:0; background:none; font-size:11px; }
+.er-lib-mobile .er-lib-folder-nav { flex:none; display:grid; grid-template-columns:1fr 1fr; padding:8px 12px; gap:8px; }
+.er-lib-mobile .er-lib-breadcrumbs { grid-column:1/-1; min-width:0; gap:2px; }
+.er-lib-mobile .er-lib-breadcrumbs button { min-height:36px; padding:4px 6px; font-size:13px; }
+.er-lib-mobile .er-lib-all,.er-lib-mobile .er-lib-status { width:100%; min-width:0; height:36px; padding:0 9px; font-size:12px; border-radius:8px; box-shadow:none; }
+.er-lib-mobile .er-lib-grid { display:grid; gap:14px 10px; padding:12px 12px calc(24px + env(safe-area-inset-bottom,0px)); scrollbar-gutter:auto; }
+.er-lib-mobile .er-lib-card { overflow:hidden; border-radius:10px; animation:none; }
+.er-lib-mobile .er-lib-cover { border-radius:9px 9px 0 0; }
+.er-lib-mobile .er-lib-info { padding:9px 8px 10px; }
+.er-lib-mobile .er-lib-book-title { font-size:12px; line-height:1.36; margin-bottom:4px; }
+.er-lib-mobile .er-lib-book-meta { font-size:10px; }
+.er-lib-mobile .er-lib-folder-icon { font-size:44px; }
+.er-lib-mobile .er-lib-folder-more { width:36px; height:36px; min-height:36px; padding:0; top:5px; right:5px; border-radius:8px; }
+.er-lib-mobile .er-lib-morebtn,.er-lib-mobile .er-lib-fitbtn { width:36px; height:36px; top:5px; opacity:.9; transform:none; }
+.er-lib-mobile .er-lib-fitbtn { right:5px; }
+.er-lib-mobile .er-lib-morebtn { right:45px; }
+.er-lib-mobile .er-lib-morebtn svg,.er-lib-mobile .er-lib-fitbtn svg { width:16px; height:16px; }
+
+/* Keep cover placeholders and action layers inside the library, below host UI. */
+.er-lib { position:relative; isolation:isolate; z-index:0; }
+.er-lib .er-lib-grid { position:relative; isolation:isolate; z-index:0; }
+.er-lib .er-lib-card { position:relative; isolation:isolate; }
+.er-lib .er-lib-cover { isolation:isolate; }
+/* SVG inherits Obsidian's accent on every platform, unlike system emoji. */
+.er-lib .er-lib-folder-icon { display:flex; color:var(--interactive-accent); }
+.er-lib .er-lib-folder-icon svg { display:block; width:64px; height:64px; }
+.er-lib-mobile .er-lib-folder-icon svg { width:44px; height:44px; }
+/* Leave room to scroll the final caption above Obsidian's floating bottom bar. */
+.er-lib-mobile .er-lib-grid {
+  padding-bottom:calc(112px + env(safe-area-inset-bottom,0px));
+  scroll-padding-bottom:calc(112px + env(safe-area-inset-bottom,0px));
+}
+/* Mobile compositing of blurred cover controls can escape scrolling clips. */
+.er-lib-mobile .er-lib-morebtn,.er-lib-mobile .er-lib-fitbtn {
+  -webkit-backdrop-filter:none; backdrop-filter:none; background:rgba(18,18,28,.85);
+}
+
+/* Mobile reader chrome floats above a stable full-screen text area. */
+.er-reader-overlay { min-height:0; height:100%; }
+.er-reader-overlay .er-area { position:absolute; inset:0; width:100%; height:100%; margin:0; }
+.er-reader-overlay .er-top {
+  position:absolute; top:max(env(safe-area-inset-top,0px),var(--er-extra-top,0px));
+  left:8px; right:8px; height:52px; padding:0 6px;
+  display:grid; grid-template-columns:44px minmax(0,1fr) 88px;
+  border:1px solid var(--er-border); border-radius:14px;
+  background:color-mix(in srgb,var(--er-ui) 96%,transparent); z-index:10;
+}
+.er-reader-overlay .er-top-title { display:none; }
+.er-reader-overlay .er-top-right { grid-column:3; grid-row:1; display:flex; gap:0; }
+.er-reader-overlay .er-timerbtn { grid-column:2; grid-row:1; justify-self:center; margin:0; max-width:100%; }
+.er-reader-overlay .er-timer-reset { display:none; }
+.er-reader-overlay .er-ibtn { width:44px; height:44px; padding:0; border:0; box-shadow:none; background:transparent; color:var(--er-text); opacity:.85; }
+.er-reader-overlay .er-ibtn svg { width:22px; height:22px; }
+.er-reader-overlay .er-bot {
+  position:absolute; left:8px; right:8px; bottom:calc(8px + env(safe-area-inset-bottom,0px));
+  height:auto; min-height:76px; padding:5px 12px 8px; display:flex; flex-direction:column;
+  gap:2px; border:1px solid var(--er-border); border-radius:14px;
+  background:color-mix(in srgb,var(--er-ui) 96%,transparent); z-index:10;
+}
+.er-reader-actions { display:flex; justify-content:space-around; width:100%; }
+.er-reader-overlay .er-bot-center { flex:none; display:flex; flex-direction:row; justify-content:center; gap:12px; width:100%; }
+.er-reader-overlay .er-loc,.er-reader-overlay .er-pct { font-size:12px; line-height:18px; }
+.er-reader-overlay .er-pbar { display:none; }
+.er-reader-overlay .er-top,.er-reader-overlay .er-bot { transition:opacity .16s ease,visibility .16s ease; }
+.er-reader-overlay.er-chrome-hidden .er-top,.er-reader-overlay.er-chrome-hidden .er-bot { opacity:0; visibility:hidden; pointer-events:none; }
+.er-reader-overlay .er-loading,.er-reader-overlay .er-load-error { margin:auto; padding:24px; }
+.er-flow-paint { transform:none !important; will-change:auto !important; }
+.er-reader-overlay .er-top[hidden],.er-reader-overlay .er-bot[hidden] { display:none !important; }
+.er-mobile-margin { display:flex; align-items:center; gap:12px; padding:8px 0; }
+.er-mobile-margin input { flex:1; min-width:0; }
+.er-mobile-margin span { min-width:42px; font-variant-numeric:tabular-nums; }

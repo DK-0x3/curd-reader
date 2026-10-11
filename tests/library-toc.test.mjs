@@ -145,6 +145,8 @@ test('library renders virtual cards, scans all vault books, navigates and refres
     const view=new p.LibraryModal({},plugin);Object.assign(view,{app:plugin.app,contentEl:p.window.document.createElement('div'),modalEl:p.window.document.createElement('div'),containerEl:p.window.document.createElement('div')});p.window.document.body.appendChild(view.contentEl);
     view._setupDropZone=()=>{};view.renderCard=(grid,file)=>grid.createDiv({cls:'test-book',text:file.path});
     await view.onOpen();assert.equal(view.contentEl.querySelectorAll('.er-lib-folder-card').length,1);assert.match(view.contentEl.textContent,/Elsewhere\/free.pdf/);assert.doesNotMatch(view.contentEl.textContent,/Outside\/assigned.epub/);
+    assert.ok(view.contentEl.querySelector('.er-lib-folder-icon svg'));
+    assert.doesNotMatch(view.contentEl.querySelector('.er-lib-folder-icon').textContent,/📁/);
     assert.ok(view.contentEl.querySelector('[aria-label="Обновить книги"]'));assert.ok(view.contentEl.querySelector('[aria-label="Настройки чтения"] svg'));
     view.contentEl.querySelector('.er-lib-folder-open').click();assert.equal(view._folderId,'a');assert.match(view.contentEl.textContent,/Deep/);
     view.contentEl.querySelector('.er-lib-folder-open').click();assert.equal(view._folderId,'b');assert.match(view.contentEl.textContent,/Outside\/assigned.epub/);
@@ -269,4 +271,213 @@ test('cover fallback stays stable across observer calls and follows width change
     for(let i=0;i<10;i++)view._sizeCovers();assert.equal(writes,0);assert.equal(cover.style.height,'300px');
     width=240;view._sizeCovers();assert.equal(cover.style.height,'360px');assert.equal(writes,1);
   }finally{p.close();}
+});
+
+test('mobile library keeps its card size independent and restores it after reopening',async()=>{
+  const p=await loadPlugin({Platform:{isMobile:true,isPhone:true},ResizeObserver:class{observe(){}disconnect(){}}});
+  try {
+    obsidianDom(p.window);
+    const disk=memoryVault({});disk.vault.getFiles=()=>[];
+    const plugin=new p.EltonReader();plugin.app={isMobile:true,vault:disk.vault,workspace:{getLeavesOfType:()=>[]}};
+    plugin.library=emptyLibrary();plugin.library.migratedLegacyTags=true;
+    plugin.settings.libCoverSize=288;plugin.settings.libCoverSizeMobile=132;
+    plugin._writeRescue=async()=>{};let saved;
+    plugin.saveAll=async()=>{saved=JSON.parse(JSON.stringify(plugin.settings));};
+    const open=async()=>{
+      const view=new p.LibraryModal({},plugin);
+      Object.assign(view,{app:plugin.app,contentEl:p.window.document.createElement('div'),modalEl:p.window.document.createElement('div'),containerEl:p.window.document.createElement('div')});
+      p.window.document.body.appendChild(view.contentEl);view._setupDropZone=()=>{};
+      await view.onOpen();return view;
+    };
+    let view=await open();assert.ok(view.contentEl.classList.contains('er-lib-mobile'));
+    assert.match(view._grid.style.gridTemplateColumns,/132px/);
+    view.contentEl.querySelector('[aria-label="Больше обложки"]').click();
+    assert.equal(plugin.settings.libCoverSizeMobile,160);assert.equal(saved.libCoverSizeMobile,160);
+    assert.equal(plugin.settings.libCoverSize,288);view.onClose();
+    plugin.settings= saved;view=await open();assert.match(view._grid.style.gridTemplateColumns,/160px/);view.onClose();
+    p.evaluate('Platform.isMobile=false;Platform.isPhone=false');plugin.app.isMobile=false;
+    view=await open();assert.ok(!view.contentEl.classList.contains('er-lib-mobile'));
+    assert.match(view._grid.style.gridTemplateColumns,/288px/);
+    view.contentEl.querySelector('[aria-label="Меньше обложки"]').click();
+    assert.equal(plugin.settings.libCoverSize,260);assert.equal(plugin.settings.libCoverSizeMobile,160);view.onClose();
+  } finally { p.close(); }
+});
+
+test('mobile reader builds its complete controls before book loading',async()=>{
+ const p=await loadPlugin({Platform:{isMobile:true,isPhone:true}});
+ try {
+  obsidianDom(p.window);const plugin=new p.EltonReader();plugin.app={isMobile:true};
+  plugin.getGoalSeconds=()=>1200;plugin.getTodaySeconds=()=>0;
+  const view=new p.ReaderModal(plugin.app,plugin,new p.TFile('Books/book.epub'));
+  view.app=plugin.app;view.contentEl=p.window.document.createElement('div');p.window.document.body.appendChild(view.contentEl);
+  view._buildDOM();assert.ok(view.areaEl);assert.ok(view.contentEl.querySelector('.er-bot'));
+  view.onClose();
+ }finally{p.close();}
+});
+
+test('mobile reader loads a real FB2, toggles overlay chrome, and opens search',async()=>{
+ const p=await loadPlugin({Platform:{isMobile:true,isPhone:true}});
+ let view;
+ try {
+  obsidianDom(p.window);const plugin=new p.EltonReader();
+  const xml='<FictionBook><body><section><title><p>Chapter</p></title><p>Readable mobile text.</p></section></body></FictionBook>';
+  plugin.app={isMobile:true,vault:{readBinary:async()=>new TextEncoder().encode(xml).buffer}};
+  plugin.refreshHighlights=async()=>{};plugin.refreshProgress=async()=>{};plugin.getGoalSeconds=()=>1200;plugin.getTodaySeconds=()=>0;
+  view=new p.ReaderModal(plugin.app,plugin,new p.TFile('Books/book.fb2'));view.app=plugin.app;
+  view.contentEl=p.window.document.createElement('div');p.window.document.body.appendChild(view.contentEl);
+  view._maybePromptBookNote=()=>{};view._buildDOM();await view._loadBook();
+  assert.match(view.pager.flow.textContent,/Readable mobile text/);assert.ok(!view.contentEl.querySelector('.er-load-error'));
+  view.areaEl.click();assert.ok(view.contentEl.hasClass('er-chrome-hidden'));
+  view.areaEl.click();assert.ok(!view.contentEl.hasClass('er-chrome-hidden'));
+  view.contentEl.querySelector('[aria-label="Поиск по книге"]').click();
+  assert.equal(view.panelOpen,'find');assert.ok(view.findPan.hasClass('er-panel-open'));
+  view._closePanel();assert.ok(!view.findPan.hasClass('er-panel-open'));
+  const original=view.pager.build;view.pager.build=async()=>{throw new Error('Failed layout');};
+  await view._loadBook();assert.match(view.areaEl.textContent,/Failed layout/);
+  assert.ok(!view.areaEl.hasClass('er-booting'));assert.ok(view.areaEl.querySelector('button'));
+  view.pager.build=original;
+ } finally { view?.onClose();p.close(); }
+});
+
+test('large mobile pagination paints at the requested page without a giant transformed layer',async()=>{
+ const p=await loadPlugin();
+ try {
+  obsidianDom(p.window);const pager=new p.Paginator();pager.flow=p.window.document.createElement('div');
+  pager._paintPaging=true;pager._flowLeft=24;pager._vOffset=()=>12;pager._spreadOffset=()=>390000;
+  pager.flow.addClass('er-flow-anim');pager.applyTransform();
+  assert.ok(pager.flow.hasClass('er-flow-paint'));assert.equal(pager.flow.style.transform,'');assert.equal(pager.flow.style.left,'-389976px');
+  assert.equal(pager.flow.style.top,'12px');assert.ok(!pager.flow.hasClass('er-flow-anim'));
+ }finally {p.close();}
+});
+
+test('mobile taps hide bars once and navigate both edges in scrolling mode',async()=>{
+ const p=await loadPlugin({Platform:{isMobile:true}});let view;
+ try {
+  p.window.PointerEvent = undefined;
+  obsidianDom(p.window);const plugin=new p.EltonReader();plugin.settings.navMode='click';
+  plugin.getGoalSeconds=()=>1200;plugin.getTodaySeconds=()=>0;
+  view=new p.ReaderModal({},plugin,new p.TFile('Books/b.fb2'));view.app={isMobile:true};
+  view.contentEl=p.window.document.createElement('div');view._buildDOM();
+  view.areaEl.getBoundingClientRect=()=>({left:0,width:400});view.pager.scrollMode=true;
+  const directions=[];view._nav=dir=>directions.push(dir);
+  view.areaEl.dispatchEvent(new p.window.MouseEvent('click',{bubbles:true,clientX:20}));
+  view.areaEl.dispatchEvent(new p.window.MouseEvent('click',{bubbles:true,clientX:380}));
+  assert.deepEqual(directions,['prev','next']);
+  const touch=(name,x,y)=>{const e=new p.window.Event(name,{bubbles:true});Object.defineProperty(e,'touches',{value:[{clientX:x,clientY:y}]});Object.defineProperty(e,'changedTouches',{value:[{clientX:x,clientY:y}]});view.areaEl.dispatchEvent(e);};
+  touch('touchstart',200,100);touch('touchend',200,100);
+  assert.ok(view.contentEl.hasClass('er-chrome-hidden'));assert.ok(view.contentEl.querySelector('.er-top').hidden);
+  view.areaEl.dispatchEvent(new p.window.MouseEvent('click',{bubbles:true,clientX:200}));
+  assert.ok(view.contentEl.hasClass('er-chrome-hidden'));
+  touch('touchstart',200,100);touch('touchend',200,100);
+  assert.ok(!view.contentEl.hasClass('er-chrome-hidden'));assert.ok(!view.contentEl.querySelector('.er-bot').hidden);
+  touch('touchstart',200,100);touch('touchend',200,150);
+  assert.ok(!view.contentEl.hasClass('er-chrome-hidden'));assert.equal(directions.length,2);
+ } finally {view?.onClose();p.close();}
+});
+
+test('mandatory device profiles migrate old appearance and isolate timer, layout and reading logs',async()=>{
+ const p=await loadPlugin();
+ try {
+  const settings=p.evaluate('({...DEFAULT,perDevice:false,fontSize:22,dailyGoalMin:30,deviceProfiles:{phone:{fontSize:17}},readingLog:{today:5}})');
+  p.context.profileSettings=settings;p.evaluate('applyDeviceProfile(profileSettings)');
+  assert.equal(settings.perDevice,true);assert.equal(settings.fontSize,22);
+  settings.fontSize=25;settings.timerEnabled=false;settings.mobileTextMargin=4;p.evaluate('captureDeviceProfile(profileSettings)');
+  p.evaluate('Platform.isMobile=true');p.evaluate('applyDeviceProfile(profileSettings)');
+  assert.equal(settings.fontSize,17);assert.equal(settings.timerEnabled,true);assert.equal(settings.dailyGoalMin,30);
+  settings.readingLog.today=10;settings.readMode='scroll';p.evaluate('captureDeviceProfile(profileSettings)');
+  p.evaluate('Platform.isMobile=false');p.evaluate('applyDeviceProfile(profileSettings)');
+  assert.equal(settings.fontSize,25);assert.equal(settings.timerEnabled,false);assert.equal(settings.readMode,'pages');assert.equal(settings.readingLog.today,5);
+  const plugin=new p.EltonReader();plugin.app={};plugin.settings=settings;
+  plugin.loadData=async()=>({settings:{deviceProfiles:{phone:{fontSize:19,dailyGoalMin:45}}}});
+  let saved;plugin.saveData=async data=>{saved=data;};await plugin._saveLocalData();
+  assert.equal(saved.settings.deviceProfiles.phone.fontSize,19);assert.equal(saved.settings.deviceProfiles.desktop.fontSize,25);
+ } finally {p.close();}
+});
+
+test('mobile margin control saves and repaginates while desktop has no phone margin control',async()=>{
+ const p=await loadPlugin({Platform:{isMobile:true}});let modal;
+ try {
+  obsidianDom(p.window);const plugin=new p.EltonReader();plugin.app={isMobile:true};
+  let saved=0,layouts=0;plugin._saveLocalData=async()=>{saved++;return true;};
+  const view={app:plugin.app,plugin,_librarySettings:true,_readers:()=>[{_repaginate:async()=>{layouts++;}}]};
+  modal=new p.ReadSettingsModal(plugin.app,view);modal.contentEl=p.window.document.createElement('div');modal.modalEl=p.window.document.createElement('div');modal.onOpen();
+  const input=modal.contentEl.querySelector('[aria-label="Боковые отступы текста"]');assert.ok(input);
+  input.value='8';input.dispatchEvent(new p.window.Event('change'));await new Promise(r=>p.window.setTimeout(r,0));
+  assert.equal(plugin.settings.mobileTextMargin,8);assert.equal(saved,1);assert.equal(layouts,1);
+  p.evaluate('Platform.isMobile=false');plugin.app.isMobile=false;
+  modal.onOpen();assert.ok(!modal.contentEl.querySelector('[aria-label="Боковые отступы текста"]'));
+ }finally {p.window.clearTimeout(modal?._saveT);p.close();}
+});
+
+test('mobile cover taps toggle controls and refresh button has a real SVG',async()=>{
+ const p=await loadPlugin({Platform:{isMobile:true}});let view;
+ try {
+  obsidianDom(p.window);const plugin=new p.EltonReader();plugin.getGoalSeconds=()=>1200;plugin.getTodaySeconds=()=>0;
+  view=new p.ReaderModal({},plugin,new p.TFile('Books/cover.epub'));view.app={isMobile:true};view.contentEl=p.window.document.createElement('div');
+  view._buildDOM();assert.ok(view.contentEl.querySelector('[aria-label="Обновить книгу"] svg'));
+  const image=view.areaEl.createEl('img',{attr:{src:'data:image/png;base64,AA=='}});
+  image.dispatchEvent(new p.window.MouseEvent('click',{bubbles:true,clientX:200}));assert.ok(view.contentEl.querySelector('.er-top').hidden);
+  image.dispatchEvent(new p.window.MouseEvent('click',{bubbles:true,clientX:200}));assert.ok(!view.contentEl.querySelector('.er-top').hidden);
+  assert.ok(!p.window.document.querySelector('.er-lightbox'));
+ }finally{view?.onClose();p.close();}
+});
+
+test('initial mobile pagination decodes cover before measuring and avoids GPU promotion from the start',async()=>{
+ const p=await loadPlugin({Platform:{isMobile:true}});
+ try {
+  obsidianDom(p.window);let decoded=false,measured=false;
+  p.window.HTMLImageElement.prototype.decode=async function(){await new Promise(r=>p.window.setTimeout(r,20));decoded=true;};
+  const native=p.window.HTMLElement.prototype.getBoundingClientRect;
+  p.window.HTMLElement.prototype.getBoundingClientRect=function(){
+    if(this.classList.contains('er-end')){assert.ok(decoded);measured=true;assert.ok(this.parentElement.hasClass('er-flow-paint'));}
+    return native.call(this);
+  };
+  const pager=new p.Paginator();const container=p.window.document.createElement('div');p.window.document.body.appendChild(container);
+  await pager.build(container,'<p><img src="data:image/png;base64,AA=="></p><p>Text</p>',new p.EltonReader().settings,0);
+  assert.ok(measured);assert.ok(decoded);assert.equal(pager.flow.style.transform,'');assert.ok(pager.flow.hasClass('er-flow-paint'));
+  pager.destroy();
+ }finally {p.close();}
+});
+
+test('captured mobile pointers toggle bars despite descendant handlers and stale text selection',async()=>{
+ const p=await loadPlugin({Platform:{isMobile:true}});let view;
+ try {
+  obsidianDom(p.window);const plugin=new p.EltonReader();plugin.getGoalSeconds=()=>1200;plugin.getTodaySeconds=()=>0;
+  view=new p.ReaderModal({},plugin,new p.TFile('Books/nested.epub'));view.app={isMobile:true};view.contentEl=p.window.document.createElement('div');
+  p.window.document.body.appendChild(view.contentEl);view._buildDOM();view.areaEl.getBoundingClientRect=()=>({left:0,width:400,right:400});
+  const wrapper=view.areaEl.createDiv();const paragraph=wrapper.createEl('p');const span=paragraph.createSpan({text:'Book text'});
+  span.addEventListener('pointerup',e=>e.stopPropagation());
+  const selection=p.window.getSelection();const range=p.window.document.createRange();range.selectNodeContents(span);selection.addRange(range);
+  const pointer=(type,x,y)=>{const e=new p.window.Event(type,{bubbles:true});for(const [key,value]of Object.entries({pointerType:'touch',pointerId:1,clientX:x,clientY:y}))Object.defineProperty(e,key,{value});span.dispatchEvent(e);};
+  pointer('pointerdown',200,100);pointer('pointerup',200,100);
+  assert.ok(view.contentEl.querySelector('.er-top').hidden);assert.ok(selection.isCollapsed);
+  span.dispatchEvent(new p.window.MouseEvent('click',{bubbles:true,clientX:200}));assert.ok(view.contentEl.querySelector('.er-top').hidden);
+  pointer('pointerdown',200,100);pointer('pointerup',200,100);assert.ok(!view.contentEl.querySelector('.er-top').hidden);
+  pointer('pointerdown',200,100);pointer('pointermove',200,160);pointer('pointerup',200,160);assert.ok(!view.contentEl.querySelector('.er-top').hidden);
+  const image=wrapper.createEl('img',{attr:{src:'data:image/png;base64,AA=='}});image.dispatchEvent(new p.window.MouseEvent('dblclick',{bubbles:true}));
+  assert.ok(!p.window.document.querySelector('.er-lightbox'));
+ } finally {view?.onClose();p.close();}
+});
+
+test('first large EPUB opening completes the refresh pass before restoring its position',async()=>{
+ const p=await loadPlugin({Platform:{isMobile:true}});let view;
+ try {
+  obsidianDom(p.window);const plugin=new p.EltonReader();plugin.app={isMobile:true};
+  plugin.refreshHighlights=async()=>{};plugin.refreshProgress=async()=>{};plugin.getGoalSeconds=()=>1200;plugin.getTodaySeconds=()=>0;
+  plugin.getProgress=()=>({block:7,pct:.5});
+  p.context.largeHtml='<p>'+ 'Large book text '.repeat(18000)+'</p>';
+  p.evaluate('extractEpub=async()=>largeHtml');
+  view=new p.ReaderModal(plugin.app,plugin,new p.TFile('Books/large.epub'));view.app=plugin.app;
+  view.contentEl=p.window.document.createElement('div');p.window.document.body.appendChild(view.contentEl);view._buildDOM();view._maybePromptBookNote=()=>{};
+  let passes=0,restored=false;
+  view.pager.build=async()=>{
+    passes++;assert.ok(view._loading);view.areaEl.empty();
+    view.pager.flow=view.areaEl.createDiv();view.pager.flow.createEl('p',{text:passes===1?'':'Visible after completed layout'});
+    view.pager.total=20;view.pager.spread=0;
+    if(passes===2)assert.ok(!view.areaEl.hasClass('er-booting'));
+  };
+  view.pager.spreadForBlock=()=>7;view.pager.jumpToBlock=block=>{assert.equal(passes,2);assert.equal(block,7);restored=true;return[7,20];};
+  view._renderFlowHighlights=()=>{};view._flashBlock=()=>{};
+  await view._loadBook();assert.equal(passes,2);assert.ok(restored);assert.match(view.pager.flow.textContent,/Visible after completed layout/);
+ }finally{view?.onClose();p.close();}
 });

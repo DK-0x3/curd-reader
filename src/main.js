@@ -450,6 +450,7 @@ const DEFAULT = {
   // Library cover size = the grid column width in px (cards scale with it). The
   // user can change it live with the −/+ control in the library header.
   libCoverSize: 176,
+  libCoverSizeMobile: 132,
   // Last virtual library folder, restored when reopening the gallery.
   libFolder: "",
   // Is the "Расширенные" group in the reading panel expanded? Collapsed by
@@ -480,6 +481,7 @@ const DEFAULT = {
   immersive: true,
   // Ручной отступ сверху на телефоне, px. 0 — высоту статус-бара берём у системы.
   mobileTopInset: 0,
+  mobileTextMargin: 16,
   // Set to true once the first-run welcome slideshow has been shown, so it never
   // pops up again on its own (can still be re-opened from Settings).
   onboarded: false,
@@ -542,8 +544,9 @@ const DEFAULT = {
   // Put notes made from a book's highlights in the SAME folder as the book,
   // instead of the shared notes folder. Off = the folder setting decides.
   notesNextToBook: false,
-  perDevice: false,
-  // { desktop: {...}, tablet: {...}, phone: {...} } — only the appearance keys.
+  perDevice: true,
+  deviceProfileVersion: 0,
+  // Independent preference profiles; shared book data stays outside these slots.
   deviceProfiles: {},
   // Plugin version the reader last saw the "what's new" screen for. Drives the
   // post-update summary; empty on an existing install means "never tracked", and
@@ -644,37 +647,42 @@ function erPath(p) {
 // on a tablet and enormous on a phone, and readers were re-adjusting the size
 // every time they switched device.
 //
-// Only the LOOK is per device. Folders, templates, highlight colours and
-// reading progress stay shared — those are decisions about the vault, not about
-// the screen you happen to be holding.
-const DEVICE_KEYS = ["theme", "fontSize", "fontFamily", "lineHeight", "columns", "textAlign", "vAlign", "einkMode"];
+// Preferences and timers are per device. Vault paths and book identities remain
+// shared; reading progress and highlights are stored as separate book data.
+const SHARED_SETTING_KEYS = new Set(["booksFolder", "dataFolder", "bookNoteLinks", "bookNotePrompted", "coverFits", "onboarded", "promptedRepaired", "figuresShownByDefault", "perDevice", "deviceProfiles", "deviceProfileVersion", "lastSeenVersion", "aiKey"]);
+const DEVICE_KEYS = Object.keys(DEFAULT).filter(key => !SHARED_SETTING_KEYS.has(key));
 function erDeviceKey() {
   try {
-    if (Platform) {
-      if (Platform.isPhone) return "phone";
-      if (Platform.isTablet) return "tablet";
-    }
-  } catch { /* optional step; a failure here must not interrupt reading */ }
+    if (Platform?.isPhone) return "phone";
+    if (Platform?.isTablet) return "tablet";
+    if (Platform?.isMobile) return "phone";
+  } catch { /* platform information is optional */ }
   return "desktop";
 }
-// Load this device's saved look over the shared defaults. A key the device has
-// never set is left alone, so turning the option on inherits what is on screen
-// now rather than resetting the book to factory settings mid-sentence.
-function applyDeviceProfile(settings) {
-  if (!settings || !settings.perDevice) return;
-  const p = (settings.deviceProfiles || {})[erDeviceKey()];
-  if (!p) return;
-  for (const k of DEVICE_KEYS) if (p[k] !== void 0) settings[k] = p[k];
+function deviceSnapshot(settings) {
+  return JSON.parse(JSON.stringify(Object.fromEntries(DEVICE_KEYS.map(key => [key, settings[key]]))));
 }
-// Stash the live look back into this device's slot on the way to disk. Done at
-// save time rather than at each of the ~35 places that read or write a font
-// size, so the reader's own code is untouched and there is one place to check.
+function applyDeviceProfile(settings) {
+  if (!settings) return;
+  settings.perDevice = true;
+  settings.deviceProfiles ||= {};
+  if (!settings.deviceProfileVersion) {
+    const legacy = deviceSnapshot(settings);
+    for (const key of ["desktop", "phone", "tablet"]) {
+      settings.deviceProfiles[key] = { ...JSON.parse(JSON.stringify(legacy)), ...(settings.deviceProfiles[key] || {}) };
+    }
+    settings.deviceProfileVersion = 1;
+  }
+  const profile = settings.deviceProfiles[erDeviceKey()];
+  if (profile) for (const key of DEVICE_KEYS) {
+    settings[key] = JSON.parse(JSON.stringify(profile[key] !== undefined ? profile[key] : DEFAULT[key]));
+  }
+}
 function captureDeviceProfile(settings) {
-  if (!settings || !settings.perDevice) return;
-  if (!settings.deviceProfiles) settings.deviceProfiles = {};
-  const key = erDeviceKey();
-  const p = settings.deviceProfiles[key] || (settings.deviceProfiles[key] = {});
-  for (const k of DEVICE_KEYS) p[k] = settings[k];
+  if (!settings) return;
+  settings.perDevice = true;
+  settings.deviceProfiles ||= {};
+  settings.deviceProfiles[erDeviceKey()] = deviceSnapshot(settings);
 }
 // Put one of our own icons into an element as real SVG nodes.
 //
@@ -1156,6 +1164,19 @@ function panelSection(view, p, { label, emoji, settingKey, defaultOpen = false }
 function buildReaderExtraSettings(view, p) {
   const s = view.plugin.settings;
   const sec = (l) => p.createDiv("er-pan-sec").setText(l);
+  if (erIsMobile(view.app)) {
+    sec("Боковые отступы текста");
+    const row = p.createDiv("er-mobile-margin");
+    const label = row.createSpan({ text: `${s.mobileTextMargin ?? 16}px` });
+    const input = row.createEl("input", { attr: { type:"range", min:"0", max:"48", step:"2", "aria-label":"Боковые отступы текста" } });
+    input.value = String(s.mobileTextMargin ?? 16);
+    input.addEventListener("input", () => label.setText(`${input.value}px`));
+    input.addEventListener("change", async () => {
+      s.mobileTextMargin = Number(input.value);await view.plugin._saveLocalData();
+      if (view._librarySettings) { for (const reader of view._readers()) await (reader.repaginate?.() || reader._repaginate?.()); }
+      else await (view.repaginate?.() || view._repaginate?.());
+    });
+  }
   sec(__ertr("Листание"));
   const navRow = p.createDiv("er-col-row");
   [["buttons", __ertr("Кнопками")], ["click", __ertr("По клику")]].forEach(([v, label]) => {
@@ -1653,7 +1674,7 @@ const EltonReader = class extends Plugin {
       const savedKey = this.app.secretStorage.getSecret(readerSecretId(this.app)) || this.app.secretStorage.getSecret(readerSecretId(this.app,"elton-reader"));
       if (!this.settings.aiKey && savedKey) this.settings.aiKey = savedKey;
     }
-    // Overlay whatever THIS device last looked like (no-op unless enabled).
+    // All preferences are scoped to this device; book data remains shared.
     applyDeviceProfile(this.settings);
     // An older install may carry a null here from a build that derived this
     // from the system preference; treat it as on, which is the default now.
@@ -1742,7 +1763,16 @@ const EltonReader = class extends Plugin {
       return Promise.resolve(false);
     }
     const data = JSON.stringify({ settings, progressBackups: this.progressBackups, highlightsBackups: this.highlightsBackups, lastBookPath: this._lastBookPath || "" });
-    return this._queueWrite("local", () => this.saveData(JSON.parse(data)));
+    return this._queueWrite("local", async () => {
+      const snapshot = JSON.parse(data);
+      if (typeof this.loadData === "function") {
+        const disk = await this.loadData();
+        const current = erDeviceKey();
+        const diskProfiles = disk?.settings?.deviceProfiles || {};
+        snapshot.settings.deviceProfiles = { ...snapshot.settings.deviceProfiles, ...diskProfiles, [current]:snapshot.settings.deviceProfiles[current] };
+      }
+      await this.saveData(snapshot);
+    });
   }
   _queueWrite(channel, operation) {
     const previous = this._writes?.[channel] || Promise.resolve();
@@ -2463,12 +2493,13 @@ const Paginator = class {
     // concludes nothing needs rebuilding, leaving the page laid out for one width
     // and displayed at another (columns then sit off to the side).
     this.builtWidth = aW;
+    this.builtHeight = aH;
     const cols  = settings.columns === "2" && aW > 700 ? 2 : 1;
     const gap   = cols === 2 ? 48 : 0;
     // Side padding scales with width: a phone (≤600px) gets a comfortable 26px
     // margin instead of the desktop 60px, so the reading column isn't squeezed.
-    const basePad = cols === 2 ? 48 : (aW <= 600 ? 26 : aW <= 820 ? 42 : 60);
-    const padVt = Math.min(basePad, 40);
+    const basePad = erIsMobile() ? Math.max(0, Math.min(48, Number.isFinite(Number(settings.mobileTextMargin)) ? Number(settings.mobileTextMargin) : 16)) : (cols === 2 ? 48 : (aW <= 600 ? 26 : aW <= 820 ? 42 : 60));
+    const padVt = erIsMobile() ? 26 : Math.min(basePad, 40);
     const padVtBot = padVt;
     // Reduce aH by vertical padding so content fits within column height
     const aHinner = aH - padVt - padVtBot;
@@ -2502,13 +2533,16 @@ const Paginator = class {
        layout constraint. */
     let pad = basePad;
     const maxCh = Number(settings.maxLineCh) || 0;
-    if (maxCh > 0) {
+    if (maxCh > 0 && !erIsMobile()) {
       const target = maxCh * (Number(settings.fontSize) || 18) * 0.5;
       if (target > 0 && target < colW - basePad * 2) pad = Math.round((colW - target) / 2);
     }
 
     /* 3. Flow element */
     this.flow = переклад ? this.flow : this.clip.createDiv("er-flow");
+    this._paintPaging = erIsMobile() && !this.scrollMode;
+    this._flowLeft = gap / 2;
+    this.flow.toggleClass("er-flow-paint", this._paintPaging);
     if (!this.flow.dataset.erFlow) this.flow.dataset.erFlow = "f" + Math.random().toString(36).slice(2);
     this.flow.style.cssText = `
       width:${flowW}px;
@@ -2651,6 +2685,13 @@ const Paginator = class {
     this._cachedBlocks = null; this._orderedBlocks = null;
     }
 
+    if (!переклад) {
+      const images = [...this.flow.querySelectorAll("img[src]")];
+      await Promise.race([
+        Promise.all(images.map(img => typeof img.decode === "function" ? img.decode().catch(() => {}) : Promise.resolve())),
+        new Promise(resolve => window.setTimeout(resolve, 2500)),
+      ]);
+    }
     /* 4. Two rAF: first inserts DOM, second completes multicol layout */
     await new Promise(r => window.requestAnimationFrame(r));
     await new Promise(r => window.requestAnimationFrame(r));
@@ -2752,6 +2793,11 @@ const Paginator = class {
     /* b) trim the flow to exactly those columns. The column width is fixed by
           construction, so nothing re-breaks and the count holds still. */
     this.flow.style.width = `${Math.ceil(nPhys * slot) - gap}px`;
+    // Avoid promoting a very wide mobile book into one giant GPU texture.
+    this._paintPaging = erIsMobile();
+    this.flow.toggleClass("er-flow-paint", this._paintPaging);
+    this._flowLeft = gap / 2;
+    this.flow.style.willChange = this._paintPaging ? "auto" : "transform";
     await new Promise(r => window.requestAnimationFrame(r));
     await new Promise(r => window.requestAnimationFrame(r));
     /* c) confirm on the trimmed layout, and never shrink below what was seen */
@@ -2873,6 +2919,13 @@ const Paginator = class {
     // offset under position:relative — it does NOT re-flow the columns) applies
     // instantly, so paging is always dead horizontal.
     this.flow.style.top = this._vOffset() + "px";
+    if (this._paintPaging) {
+      this.flow.removeClass("er-flow-anim");
+      this.flow.addClass("er-flow-paint");
+      this.flow.style.removeProperty("transform");
+      this.flow.style.left = `${(this._flowLeft || 0) - Math.round(this._spreadOffset())}px`;
+      return;
+    }
     // Round to whole pixels: a fractional translate lands glyphs between device
     // pixels and the whole page reads as slightly out of focus.
     const t = `translate3d(${-Math.round(this._spreadOffset())}px, 0, 0)`;
@@ -8260,6 +8313,7 @@ const LibraryModal = class extends Modal {
     this.containerEl.addClass("er-modal-lib");
     modalEl.addClass("er-modal-lib");
     contentEl.addClass("er-lib");
+    contentEl.toggleClass("er-lib-mobile", erIsMobile(this.app));
     // No status-bar measurement here: the library is a leaf on every platform
     // now, and a leaf's edges belong to Obsidian.
     const t = erLibTheme(this.plugin.settings);
@@ -8292,7 +8346,9 @@ const LibraryModal = class extends Modal {
     const refreshButton = action("Обновить книги", "↻", async () => { refreshButton.disabled = true; refreshButton.setAttribute("aria-busy", "true"); try { await this.refreshBooks(); } finally { refreshButton.disabled = false; refreshButton.removeAttribute("aria-busy"); } });
     const settingsButton = action("Настройки чтения", "", () => this.openReadingSettings());
     svgIcon(settingsButton, "sliders");
-    const createFolder = action("Создать папку", "＋ Папка", () => this.createFolder());
+    const createFolder = action("Создать папку", "", () => this.createFolder());
+    svgIcon(createFolder, "plus");
+    createFolder.createSpan({ cls: "er-lib-folder-label", text: "Папка" });
     this._setupDropZone();
     const search = hdr.createDiv("er-lib-search");
     const sIc = search.createDiv("er-lib-search-ic");
@@ -8302,16 +8358,28 @@ const LibraryModal = class extends Modal {
     const count = hdr.createDiv("er-lib-count");
     // Manual size control — adjust how big the covers are, live.
     const sizeWrap = hdr.createDiv("er-lib-size");
+    const mobile = erIsMobile(this.app);
+    const sizeKey = mobile ? "libCoverSizeMobile" : "libCoverSize";
+    const defaultSize = mobile ? 132 : 176;
+    const minimumSize = mobile ? 100 : 110;
+    const maximumSize = mobile ? 220 : 300;
+    const coverSize = () => {
+      const value = Number(this.plugin.settings[sizeKey]);
+      return Math.max(minimumSize, Math.min(maximumSize, Number.isFinite(value) && value > 0 ? value : defaultSize));
+    };
+    sizeWrap.setAttribute("aria-label", mobile ? "Размер карточек на телефоне" : "Размер карточек на компьютере");
+    const sizeLabel = sizeWrap.createSpan({ cls: "er-lib-size-label", text: "Карточки" });
     const applySize = () => {
-      const px = Math.max(110, Math.min(300, this.plugin.settings.libCoverSize || 176));
-      if (this._grid) this._grid.style.gridTemplateColumns = `repeat(auto-fill,minmax(${px}px,1fr))`;
+      const px = coverSize();
+      if (this._grid) this._grid.style.gridTemplateColumns = `repeat(auto-fill,minmax(min(100%,${px}px),1fr))`;
+      sizeLabel.setAttribute("title", `${px}px`);
     };
     const mkSz = (label, d, aria) => {
-      const b = sizeWrap.createDiv("er-lib-szbtn");
+      const b = sizeWrap.createEl("button", { cls: "er-lib-szbtn", attr: { type: "button" } });
       b.setText(label);
       b.setAttribute("aria-label", aria);
       b.addEventListener("click", async () => {
-        this.plugin.settings.libCoverSize = Math.max(110, Math.min(300, (this.plugin.settings.libCoverSize || 176) + d));
+        this.plugin.settings[sizeKey] = Math.max(minimumSize, Math.min(maximumSize, coverSize() + d));
         applySize();
         window.requestAnimationFrame(() => this._sizeCovers());
         await this.plugin.saveAll();
@@ -8403,7 +8471,9 @@ const LibraryModal = class extends Modal {
     const card = grid.createDiv("er-lib-card er-lib-folder-card");
     const open = card.createEl("button", { cls:"er-lib-folder-open" });open.setAttribute("aria-label",`Открыть папку ${folder.name}`);
     const cover = open.createDiv("er-lib-cover er-lib-folder-cover");
-    cover.createSpan({cls:"er-lib-folder-icon",text:"📁"});
+    const folderIcon = cover.createSpan({cls:"er-lib-folder-icon"});
+    folderIcon.setAttribute("aria-hidden", "true");
+    svgIcon(folderIcon, "folder-open");
     const info = open.createDiv("er-lib-info");
     info.createDiv({cls:"er-lib-book-title er-lib-folder-name",text:folder.name});
     info.createDiv({cls:"er-lib-book-meta er-lib-folder-count",text:`${count} книг`});
@@ -8986,7 +9056,8 @@ const ReaderModal = class extends Modal {
     updateGoalBar(this);
     updateTimerBtn(this);
     // Re-flow the pages when the viewport changes (e.g. phone rotation, keyboard).
-    this._lastW = this.areaEl.clientWidth;
+    this._lastW = this.pager.builtWidth || this.areaEl.clientWidth;
+    this._lastH = this.pager.builtHeight || this.areaEl.clientHeight;
     this._resizeObs = new ResizeObserver(() => {
       window.clearTimeout(this._rsT);
       this._rsT = window.setTimeout(() => {
@@ -8995,7 +9066,10 @@ const ReaderModal = class extends Modal {
         // the columns are measured against.
         // (the status bar strip is pure CSS now — nothing to re-measure)
         const w = this.areaEl ? this.areaEl.clientWidth : 0;
-        if (w && Math.abs(w - (this._lastW || 0)) > 4) { this._lastW = w; this._repaginate(); }
+        const h = this.areaEl?.clientHeight || 0;
+        if (w && h && (Math.abs(w - (this._lastW || 0)) > 4 || Math.abs(h - (this._lastH || 0)) > 4)) {
+          this._lastW = w;this._lastH = h;this._repaginate();
+        }
       }, 180);
     });
     this._resizeObs.observe(this.areaEl);
@@ -9014,6 +9088,7 @@ const ReaderModal = class extends Modal {
   _buildDOM() {
     const root = this.contentEl;
     root.empty();
+    root.addClass("er-reader-overlay");
     const pb = root.createDiv("er-pbar");
     this.pbarFill = pb.createDiv("er-pbar-fill");
     const top = root.createDiv("er-top");
@@ -9038,48 +9113,26 @@ const ReaderModal = class extends Modal {
     // actions now live inside ONE «⋯» button that opens a native menu, so the top
     // bar keeps only the timer, «⋯» and the reading-settings ⚙ — the book title
     // finally has room to breathe.
-    const moreBtn = tr.createDiv("er-ibtn er-b-more");
-    svgIcon(moreBtn, "more-horizontal");
-    moreBtn.setAttribute("aria-label", __ertr("Ещё"));
-    moreBtn.addEventListener("click", (e) => {
-      const menu = new Menu();
-      menu.addItem((it) => it.setTitle(__ertr("Поиск по книге")).setIcon("search").onClick(() => {
-        this._togglePanel("find");
-        if (this._findInput) erAutoFocus(this._findInput, 80);
-      }));
-      menu.addItem((it) => it.setTitle(__ertr("Оглавление")).setIcon("list").onClick(() => this._togglePanel("toc")));
-      menu.addItem((it) => it.setTitle(__ertr("Выделения")).setIcon("highlighter").onClick(() => this._togglePanel("highlights")));
-      menu.addItem((it) => it.setTitle(__ertr("Сохранить позицию")).setIcon("save").onClick(() => this.saveNow()));
-      // A way to re-flow the book by hand. On a desktop the window resizes and
-      // the layout rebuilds itself; a phone never resizes, so when something did
-      // go wrong there was nothing to press — "кнопки обновить/перерисовать
-      // книгу нет, как на пк, перезапуск книги не помогает".
-      menu.addItem((it) => it.setTitle(__ertr("Перерисовать книгу")).setIcon("refresh-cw").onClick(async () => {
-        await this._repaginate();
-        new Notice(__ertr("Книга перерисована"));
-      }));
-      // The ↺ next to the timer is hidden on a phone — the pill was taking a
-      // third of the bar and leaving the book title as «Выготски…». It is used
-      // about once a session, so it belongs here rather than in the top row.
-      menu.addItem((it) => it.setTitle(__ertr("Сбросить таймер")).setIcon("rotate-ccw").onClick(() => resetTimerSession(this)));
-      menu.addItem((it) => it.setTitle(__ertr("Настройки чтения")).setIcon("sliders").onClick(() => new ReadSettingsModal(this.app, this).open()));
-      addBookFileMenu(this.app, menu, this.file);
-      menu.addSeparator();
-      menu.addItem((it) => it.setTitle(__ertr("Закрыть книгу")).setIcon("x").onClick(() => this.close()));
-      menu.showAtMouseEvent(e);
-    });
-    // No ✕ in the bar. There used to be one, and it did exactly what the ← two
-    // controls to its left already does — close the book. Two buttons for one
-    // action, in a bar that had no room for the book's title. The library sets
-    // the pattern: one way back, everything rarer folded into «⋯».
-    // «Справка» перенесена в панель настроек, чтобы верхняя панель была чище.
+    top.appendChild(this.timerBtnEl);
+    const topAction = (icon, label, run) => {
+      const button = tr.createEl("button", { cls: "er-ibtn", attr: { type: "button", "aria-label": label, title: label } });
+      svgIcon(button, icon);button.addEventListener("click", run);return button;
+    };
+    topAction("save", "Сохранить позицию", () => this.saveNow());
+    topAction("rotate-ccw", "Обновить книгу", () => this.bookHtml ? this._repaginate() : this._loadBook());
     this.areaEl = root.createDiv("er-area er-marea");
     if ((this.plugin.settings.navMode || "buttons") === "click") root.addClass("er-navclick");
     // Bottom reading-goal progress bar removed by request; the ▶ timer stays in the top bar.
     const bot = root.createDiv("er-bot");
-    const pv  = bot.createDiv("er-navbtn");
-    svgIcon(pv, "chevron-left");
-    pv.addEventListener("click", () => this._nav("prev"));
+    const bottomActions = bot.createDiv("er-reader-actions");
+    const bottomAction = (icon, label, run) => {
+      const button = bottomActions.createEl("button", { cls: "er-ibtn", attr: { type: "button", "aria-label": label, title: label } });
+      svgIcon(button, icon);button.addEventListener("click", run);
+    };
+    bottomAction("sliders", "Настройки чтения", () => new ReadSettingsModal(this.app, this).open());
+    bottomAction("search", "Поиск по книге", () => this._togglePanel("find"));
+    bottomAction("highlighter", "Заметки и выделения", () => this._togglePanel("highlights"));
+    bottomAction("list", "Оглавление", () => this._togglePanel("toc"));
     const center = bot.createDiv("er-bot-center");
     this.locEl = center.createDiv("er-loc er-loc-clickable");
     this.locEl.setAttribute("aria-label", __ertr("Перейти к странице"));
@@ -9093,9 +9146,6 @@ const ReaderModal = class extends Modal {
     });
     this.pctEl = center.createDiv("er-pct");
     this.pctEl.setText("0%");
-    const nx = bot.createDiv("er-navbtn");
-    svgIcon(nx, "chevron-right");
-    nx.addEventListener("click", () => this._nav("next"));
     this.overlayEl = root.createDiv("er-overlay");
     this.overlayEl.addEventListener("click", () => this._closePanel());
     this.settPan = root.createDiv("er-panel");
@@ -9120,20 +9170,34 @@ const ReaderModal = class extends Modal {
         e.stopPropagation();
         if (followFootnote(this, refEl.getAttribute("data-er-ref"))) return;
       }
-      const imgEl = e.target?.nodeType === 1 ? e.target.closest("img") : null;
-      if (imgEl && imgEl.src) { e.preventDefault(); openImageLightbox(imgEl.currentSrc || imgEl.src, this.app, imgEl); return; }
+      // Images use the same single-tap controls as the text.
       const span = e.target?.nodeType === 1 ? e.target.closest(".er-hl") : null;
       if (span) { e.preventDefault(); this._openHlEdit(span.getAttribute("data-hl-id")); }
       else if (this._editHlId) this._hideHlPopup();
     });
+    // Capture touch pointers before book descendants can consume their events.
+    let tapPointer = null;
+    this.contentEl.addEventListener("pointerdown", e => {
+      if (e.pointerType !== "touch" || !this.areaEl.contains(e.target)) return;
+      tapPointer = { id:e.pointerId, x:e.clientX, y:e.clientY, at:e.timeStamp, moved:false };
+    }, true);
+    this.contentEl.addEventListener("pointermove", e => {
+      if (tapPointer?.id === e.pointerId && (Math.abs(e.clientX-tapPointer.x)>12 || Math.abs(e.clientY-tapPointer.y)>12)) tapPointer.moved = true;
+    }, true);
+    this.contentEl.addEventListener("pointercancel", () => { tapPointer = null; }, true);
+    this.contentEl.addEventListener("pointerup", e => {
+      const tap = tapPointer;tapPointer = null;
+      if (!tap || tap.id !== e.pointerId || tap.moved || e.timeStamp-tap.at>=350) return;
+      if (this._handleReaderTap(e)) this._lastTapAt = Date.now();
+    }, true);
     // Horizontal swipe = turn page. A long-press (start a selection) or an active
     // selection must NOT be hijacked, so the user can still select text.
-    let sx = 0, sy = 0, dir = null, longPress = false, lpTimer = null, hadSel = false;
+    let sx = 0, sy = 0, dir = null, longPress = false, lpTimer = null, hadSel = false, touchStarted = 0;
     this.areaEl.addEventListener("touchstart", e => {
       if (e.touches.length > 1) { dir = "v"; return; }
-      sx = e.touches[0].clientX; sy = e.touches[0].clientY; dir = null; longPress = false;
+      sx = e.touches[0].clientX; sy = e.touches[0].clientY; dir = null; longPress = false;touchStarted = e.timeStamp;
       const sel = selOf(this.areaEl);
-      hadSel = !!(sel && !sel.isCollapsed);
+      hadSel = !!(sel && !sel.isCollapsed && sel.toString().trim() && (this.areaEl.contains(sel.anchorNode) || this.areaEl.contains(sel.focusNode)));
       window.clearTimeout(lpTimer);
       lpTimer = window.setTimeout(() => { longPress = true; }, 350);
     }, { passive: true });
@@ -9143,38 +9207,46 @@ const ReaderModal = class extends Modal {
       if (dx < 8 && dy < 8) return;
       window.clearTimeout(lpTimer);
       const sel = selOf(this.areaEl);
-      if (longPress || hadSel || (sel && !sel.isCollapsed)) { dir = "v"; return; }
+      if (longPress || hadSel || (sel && !sel.isCollapsed && sel.toString().trim())) { dir = "v"; return; }
       dir = dx > dy ? "h" : "v";
       if (dir === "h") e.preventDefault();
     }, { passive: false });
     this.areaEl.addEventListener("touchend", e => {
       window.clearTimeout(lpTimer);
-      if (dir !== "h") return;
-      const dx = e.changedTouches[0].clientX - sx;
-      if (Math.abs(dx) > 44) this._nav(dx < 0 ? "next" : "prev");
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - sx, dy = touch.clientY - sy;
+      if (dir === "h" && Math.abs(dx) > 44) {
+        this._lastSwipeAt = Date.now(); this._nav(dx < 0 ? "next" : "prev");return;
+      }
+      if (winOf(this.areaEl).PointerEvent || Math.abs(dx) > 12 || Math.abs(dy) > 12 || (longPress && e.timeStamp - touchStarted >= 350)) return;
+      if (this._handleReaderTap({ target:e.target, clientX:touch.clientX })) this._lastTapAt = Date.now();
     }, { passive: true });
-    // Tap left/right side of the page to turn it (when "По клику" is enabled).
-    this.areaEl.addEventListener("click", (e) => handleAreaNavClick(this, e));
-    // Immersive chrome, on the phone as well.
-    //
-    // The setting promises the bars dim out of the way while you read, and on a
-    // phone it did nothing at all: the desktop arms it from `pointermove`, and a
-    // finger does not move a pointer. A touch is what wakes it here — and the
-    // whole point of a phone reader is that the book is the screen.
-    const armImmersive = () => {
-      const root = this.contentEl;
-      if (!root) return;
-      if (!this.plugin.settings.immersive) { root.removeClass("er-immersive"); return; }
-      root.removeClass("er-immersive");
-      window.clearTimeout(this._immTimer);
-      this._immTimer = window.setTimeout(() => {
-        if (this.bookHtml && this.contentEl) this.contentEl.addClass("er-immersive");
-      }, 2600);
-    };
-    this._armImmersive = armImmersive;
-    this.contentEl.addEventListener("touchstart", armImmersive, { passive: true });
-    this.contentEl.addEventListener("pointerdown", armImmersive);
-    armImmersive();
+    this.areaEl.addEventListener("click", (e) => {
+      if (e.defaultPrevented || Date.now() - (this._lastSwipeAt || 0) < 450 || Date.now() - (this._lastTapAt || 0) < 500) return;
+      this._handleReaderTap(e);
+    });
+  }
+  _handleReaderTap(e) {
+    const target = e.target?.nodeType === 1 ? e.target : e.target?.parentElement;
+    if (target?.closest("a,button,input,[data-er-ref],.er-hl,.er-load-error")) return false;
+    const selection = selOf(this.areaEl);
+    if (selection && !selection.isCollapsed && (this.areaEl.contains(selection.anchorNode) || this.areaEl.contains(selection.focusNode))) {
+      selection.removeAllRanges();this._hideHlPopup();
+    }
+    const area = this.areaEl.getBoundingClientRect();
+    const left = Math.max(0, area.left);
+    const right = Math.min(winOf(this.areaEl).innerWidth || area.right, area.right ?? area.left + area.width);
+    const rect = { width:Math.max(0, right-left) };
+    const x = e.clientX - left;
+    if (rect.width && this.plugin.settings.navMode === "click") {
+      if (x < rect.width * .28) { this._nav("prev");return true; }
+      if (x > rect.width * .72) { this._nav("next");return true; }
+    }
+    const hidden = !this.contentEl.hasClass("er-chrome-hidden");
+    this.contentEl.toggleClass("er-chrome-hidden", hidden);
+    // A theme must not override the hidden state of either floating toolbar.
+    for (const bar of this.contentEl.querySelectorAll(".er-top,.er-bot")) bar.hidden = hidden;
+    return true;
   }
   // Settings changes (theme/font/size/line-height) → rebuild the pages, keeping
   // the current reading %. (Named _applyContentStyle for the panel callers.)
@@ -9235,6 +9307,7 @@ const ReaderModal = class extends Modal {
         this._pdfLazy = res.lazy;
         this._pdfOutline = res.outline;
       }
+      if (!String(this.bookHtml || "").trim()) throw new Error("В книге не найдено содержимое для отображения");
       // TOC anchored to the global block index \u2192 tap jumps to that page.
       checkAbort(signal);
       this.tocItems = buildTocItems(this.bookHtml, this._pdfOutline);
@@ -9246,13 +9319,20 @@ const ReaderModal = class extends Modal {
       const pct = (saved == null ? void 0 : saved.pct) != null ? saved.pct : 0;
       this.areaEl.addClass("er-booting");
       erShowVeil(this);
-      // Ceiling on the hold. If anything between here and the jump throws, the
-      // book must still appear — a blank page is far worse than a visible jump.
-      window.setTimeout(() => {
-        if (this.areaEl) this.areaEl.removeClass("er-booting");
-        erHideVeil(this);
-      }, 3000);
+      // Keep the loading veil until layout completes; errors clear it below.
       await this.pager.build(this.areaEl, this.bookHtml, this.plugin.settings, 0);
+      // Large EPUBs reported blank on first opening become visible after refresh.
+      // Complete that DOM-reusing layout pass after attached content gets a
+      // paint opportunity, before restoring the position and revealing the book.
+      if (this.ext === "epub" && this.bookHtml.length > 250000) {
+        this.areaEl.removeClass("er-booting");
+        // The opaque loading veil stays above the book while its real DOM paints.
+        await new Promise(resolve => window.requestAnimationFrame(resolve));
+        await new Promise(resolve => window.requestAnimationFrame(resolve));
+        checkAbort(signal);
+        await this.pager.build(this.areaEl, this.bookHtml, this.plugin.settings, 0);
+        checkAbort(signal);
+      }
       const hasBlock = saved && typeof saved.block === "number" && saved.block >= 0;
       const target = hasBlock
         ? this.pager.spreadForBlock(saved.block)
@@ -9274,8 +9354,14 @@ const ReaderModal = class extends Modal {
     } catch (e) {
       if (e.name === "AbortError") return;
       console.error("ReaderModal:", e);
+      this.areaEl.removeClass("er-booting");
+      erHideVeil(this);
       this.areaEl.empty();
-      this.areaEl.createEl("p", { cls: "er-load-error", text: __ertr("Ошибка: {0}", e.message) });
+      this.contentEl.removeClass("er-chrome-hidden");
+      const errorBox = this.areaEl.createDiv("er-load-error");
+      errorBox.createEl("p", { text: __ertr("Ошибка: {0}", e.message) });
+      const retry = errorBox.createEl("button", { text: "Повторить открытие" });
+      retry.addEventListener("click", () => this._loadBook());
     }
   }
   // First open of a book \u2192 the setup screen (create / pick / skip). Same rules as
@@ -9484,6 +9570,8 @@ const ReaderModal = class extends Modal {
   _clearFound() { clearFoundIn(this); }
   _togglePanel(name) {
     if (this.panelOpen === name) { this._closePanel(); return; }
+    this.contentEl.removeClass("er-chrome-hidden");
+    for (const bar of this.contentEl.querySelectorAll(".er-top,.er-bot")) bar.hidden = false;
     this._hideHlPopup();
     if (name === "highlights") this._buildHlPanel();
     if (name === "settings") this._renderHistory();
@@ -9491,6 +9579,7 @@ const ReaderModal = class extends Modal {
     this.settPan.classList.toggle("er-panel-open", name === "settings");
     this.tocPan.classList.toggle("er-panel-open", name === "toc");
     if (name === "toc") this._tocWidget?.open();
+    this.findPan.classList.toggle("er-panel-open", name === "find");
     this.hlPan.classList.toggle("er-panel-open", name === "highlights");
     this.overlayEl.classList.add("er-overlay-on");
   }
@@ -10066,17 +10155,7 @@ const SettingsTab = class extends PluginSettingTab {
   // what a reader reaches for mid-book. Same controls, same behaviour.
   _groupAppearance(c) {
     c.createEl("h3", { text: __ertr("Режимы") });
-    new Setting(c)
-      .setName(__ertr("Свой вид на каждом устройстве"))
-      .setDesc(__ertr("Размер шрифта, тема, шрифт, интервал, число колонок и выравнивание запоминаются отдельно для компьютера, планшета и телефона. Настройки хранятся в одном файле и синхронизируются, но каждое устройство читает свою часть, поэтому крупный шрифт на телефоне больше не делает его огромным на компьютере. Папки, шаблоны и прогресс чтения остаются общими. Это устройство: {0}.",
-        __ertr({ desktop: "компьютер", tablet: "планшет", phone: "телефон" }[erDeviceKey()])))
-      .addToggle((t) => t.setValue(this.plugin.settings.perDevice === true).onChange(async (v) => {
-        this.plugin.settings.perDevice = v;
-        // Turning it ON adopts whatever is on screen right now as this device's
-        // look, so nothing changes under the reader at the moment of the click.
-        await this.plugin.saveAll();
-        this.display();
-      }));
+    c.createDiv({ cls: "er-pan-hint", text: `Настройки сохраняются отдельно для телефона, планшета и компьютера. Сейчас: ${ { desktop:"компьютер", phone:"телефон", tablet:"планшет" }[erDeviceKey()] }. Книги и прогресс остаются общими.` });
     new Setting(c)
       .setName(__ertr("Режим для e-ink читалок"))
       .setDesc(__ertr("Для Obsidian на Android-читалке с электронными чернилами. Убирает анимации, плавные переходы, тени и размытие — они оставляют на таком экране следы. Чистый чёрный на белом, жёсткие рамки, крупнее кнопки, листание без скольжения."))

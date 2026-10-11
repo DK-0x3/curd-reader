@@ -1,7 +1,7 @@
 {
   "id": "curd-reader",
   "name": "Curd Reader",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "1.11.4",
   "description": "Read EPUB, FB2 and PDF books with highlights, notes and vault-synced reading progress.",
   "author": "DK-0x3",

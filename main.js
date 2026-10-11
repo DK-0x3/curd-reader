@@ -58252,6 +58252,7 @@ var DEFAULT = {
   // Library cover size = the grid column width in px (cards scale with it). The
   // user can change it live with the −/+ control in the library header.
   libCoverSize: 176,
+  libCoverSizeMobile: 132,
   // Last virtual library folder, restored when reopening the gallery.
   libFolder: "",
   // Is the "Расширенные" group in the reading panel expanded? Collapsed by
@@ -58282,6 +58283,7 @@ var DEFAULT = {
   immersive: true,
   // Ручной отступ сверху на телефоне, px. 0 — высоту статус-бара берём у системы.
   mobileTopInset: 0,
+  mobileTextMargin: 16,
   // Set to true once the first-run welcome slideshow has been shown, so it never
   // pops up again on its own (can still be re-opened from Settings).
   onboarded: false,
@@ -58344,8 +58346,9 @@ var DEFAULT = {
   // Put notes made from a book's highlights in the SAME folder as the book,
   // instead of the shared notes folder. Off = the folder setting decides.
   notesNextToBook: false,
-  perDevice: false,
-  // { desktop: {...}, tablet: {...}, phone: {...} } — only the appearance keys.
+  perDevice: true,
+  deviceProfileVersion: 0,
+  // Independent preference profiles; shared book data stays outside these slots.
   deviceProfiles: {},
   // Plugin version the reader last saw the "what's new" screen for. Drives the
   // post-update summary; empty on an existing install means "never tracked", and
@@ -58410,29 +58413,42 @@ function erPath(p) {
     return s.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\/+|\/+$/g, "");
   }
 }
-var DEVICE_KEYS = ["theme", "fontSize", "fontFamily", "lineHeight", "columns", "textAlign", "vAlign", "einkMode"];
+var SHARED_SETTING_KEYS = /* @__PURE__ */ new Set(["booksFolder", "dataFolder", "bookNoteLinks", "bookNotePrompted", "coverFits", "onboarded", "promptedRepaired", "figuresShownByDefault", "perDevice", "deviceProfiles", "deviceProfileVersion", "lastSeenVersion", "aiKey"]);
+var DEVICE_KEYS = Object.keys(DEFAULT).filter((key) => !SHARED_SETTING_KEYS.has(key));
 function erDeviceKey() {
+  var _a2, _b, _c;
   try {
-    if (import_obsidian.Platform) {
-      if (import_obsidian.Platform.isPhone) return "phone";
-      if (import_obsidian.Platform.isTablet) return "tablet";
-    }
+    if ((_a2 = import_obsidian.Platform) == null ? void 0 : _a2.isPhone) return "phone";
+    if ((_b = import_obsidian.Platform) == null ? void 0 : _b.isTablet) return "tablet";
+    if ((_c = import_obsidian.Platform) == null ? void 0 : _c.isMobile) return "phone";
   } catch (e) {
   }
   return "desktop";
 }
+function deviceSnapshot(settings) {
+  return JSON.parse(JSON.stringify(Object.fromEntries(DEVICE_KEYS.map((key) => [key, settings[key]]))));
+}
 function applyDeviceProfile(settings) {
-  if (!settings || !settings.perDevice) return;
-  const p = (settings.deviceProfiles || {})[erDeviceKey()];
-  if (!p) return;
-  for (const k of DEVICE_KEYS) if (p[k] !== void 0) settings[k] = p[k];
+  if (!settings) return;
+  settings.perDevice = true;
+  settings.deviceProfiles || (settings.deviceProfiles = {});
+  if (!settings.deviceProfileVersion) {
+    const legacy = deviceSnapshot(settings);
+    for (const key of ["desktop", "phone", "tablet"]) {
+      settings.deviceProfiles[key] = { ...JSON.parse(JSON.stringify(legacy)), ...settings.deviceProfiles[key] || {} };
+    }
+    settings.deviceProfileVersion = 1;
+  }
+  const profile = settings.deviceProfiles[erDeviceKey()];
+  if (profile) for (const key of DEVICE_KEYS) {
+    settings[key] = JSON.parse(JSON.stringify(profile[key] !== void 0 ? profile[key] : DEFAULT[key]));
+  }
 }
 function captureDeviceProfile(settings) {
-  if (!settings || !settings.perDevice) return;
-  if (!settings.deviceProfiles) settings.deviceProfiles = {};
-  const key = erDeviceKey();
-  const p = settings.deviceProfiles[key] || (settings.deviceProfiles[key] = {});
-  for (const k of DEVICE_KEYS) p[k] = settings[k];
+  if (!settings) return;
+  settings.perDevice = true;
+  settings.deviceProfiles || (settings.deviceProfiles = {});
+  settings.deviceProfiles[erDeviceKey()] = deviceSnapshot(settings);
 }
 function svgIcon(el, name) {
   if (!el) return el;
@@ -58870,8 +58886,25 @@ function panelSection(view, p, { label, emoji, settingKey, defaultOpen = false }
   return body;
 }
 function buildReaderExtraSettings(view, p) {
+  var _a2, _b;
   const s = view.plugin.settings;
   const sec = (l) => p.createDiv("er-pan-sec").setText(l);
+  if (erIsMobile(view.app)) {
+    sec("\u0411\u043E\u043A\u043E\u0432\u044B\u0435 \u043E\u0442\u0441\u0442\u0443\u043F\u044B \u0442\u0435\u043A\u0441\u0442\u0430");
+    const row = p.createDiv("er-mobile-margin");
+    const label = row.createSpan({ text: `${(_a2 = s.mobileTextMargin) != null ? _a2 : 16}px` });
+    const input = row.createEl("input", { attr: { type: "range", min: "0", max: "48", step: "2", "aria-label": "\u0411\u043E\u043A\u043E\u0432\u044B\u0435 \u043E\u0442\u0441\u0442\u0443\u043F\u044B \u0442\u0435\u043A\u0441\u0442\u0430" } });
+    input.value = String((_b = s.mobileTextMargin) != null ? _b : 16);
+    input.addEventListener("input", () => label.setText(`${input.value}px`));
+    input.addEventListener("change", async () => {
+      var _a3, _b2, _c, _d;
+      s.mobileTextMargin = Number(input.value);
+      await view.plugin._saveLocalData();
+      if (view._librarySettings) {
+        for (const reader of view._readers()) await (((_a3 = reader.repaginate) == null ? void 0 : _a3.call(reader)) || ((_b2 = reader._repaginate) == null ? void 0 : _b2.call(reader)));
+      } else await (((_c = view.repaginate) == null ? void 0 : _c.call(view)) || ((_d = view._repaginate) == null ? void 0 : _d.call(view)));
+    });
+  }
   sec(__ertr("\u041B\u0438\u0441\u0442\u0430\u043D\u0438\u0435"));
   const navRow = p.createDiv("er-col-row");
   [["buttons", __ertr("\u041A\u043D\u043E\u043F\u043A\u0430\u043C\u0438")], ["click", __ertr("\u041F\u043E \u043A\u043B\u0438\u043A\u0443")]].forEach(([v, label]) => {
@@ -58879,13 +58912,13 @@ function buildReaderExtraSettings(view, p) {
     btn.setText(label);
     if ((s.navMode || "buttons") === v) btn.addClass("active");
     btn.addEventListener("click", async () => {
-      var _a2;
+      var _a3;
       s.navMode = v;
       await view.plugin.saveAll();
       navRow.querySelectorAll(".er-col-btn").forEach((b) => b.removeClass("active"));
       btn.addClass("active");
       for (const reader of view._librarySettings ? view._readers() : [view]) {
-        (_a2 = reader.contentEl || reader.containerEl) == null ? void 0 : _a2.classList.toggle("er-navclick", v === "click");
+        (_a3 = reader.contentEl || reader.containerEl) == null ? void 0 : _a3.classList.toggle("er-navclick", v === "click");
       }
     });
   });
@@ -59388,7 +59421,17 @@ var EltonReader = class extends import_obsidian.Plugin {
       return Promise.resolve(false);
     }
     const data = JSON.stringify({ settings, progressBackups: this.progressBackups, highlightsBackups: this.highlightsBackups, lastBookPath: this._lastBookPath || "" });
-    return this._queueWrite("local", () => this.saveData(JSON.parse(data)));
+    return this._queueWrite("local", async () => {
+      var _a2;
+      const snapshot = JSON.parse(data);
+      if (typeof this.loadData === "function") {
+        const disk = await this.loadData();
+        const current = erDeviceKey();
+        const diskProfiles = ((_a2 = disk == null ? void 0 : disk.settings) == null ? void 0 : _a2.deviceProfiles) || {};
+        snapshot.settings.deviceProfiles = { ...snapshot.settings.deviceProfiles, ...diskProfiles, [current]: snapshot.settings.deviceProfiles[current] };
+      }
+      await this.saveData(snapshot);
+    });
   }
   _queueWrite(channel, operation) {
     var _a2;
@@ -60136,10 +60179,11 @@ var Paginator = class {
     const aW = this.clip.offsetWidth || container.offsetWidth || 390;
     const aH = this.clip.offsetHeight || container.offsetHeight || 700;
     this.builtWidth = aW;
+    this.builtHeight = aH;
     const cols = settings.columns === "2" && aW > 700 ? 2 : 1;
     const gap = cols === 2 ? 48 : 0;
-    const basePad = cols === 2 ? 48 : aW <= 600 ? 26 : aW <= 820 ? 42 : 60;
-    const padVt = Math.min(basePad, 40);
+    const basePad = erIsMobile() ? Math.max(0, Math.min(48, Number.isFinite(Number(settings.mobileTextMargin)) ? Number(settings.mobileTextMargin) : 16)) : cols === 2 ? 48 : aW <= 600 ? 26 : aW <= 820 ? 42 : 60;
+    const padVt = erIsMobile() ? 26 : Math.min(basePad, 40);
     const padVtBot = padVt;
     const aHinner = aH - padVt - padVtBot;
     const slot = aW / cols;
@@ -60147,11 +60191,14 @@ var Paginator = class {
     const flowW = this.scrollMode ? aW : 4e3 * slot - gap;
     let pad = basePad;
     const maxCh = Number(settings.maxLineCh) || 0;
-    if (maxCh > 0) {
+    if (maxCh > 0 && !erIsMobile()) {
       const target = maxCh * (Number(settings.fontSize) || 18) * 0.5;
       if (target > 0 && target < colW - basePad * 2) pad = Math.round((colW - target) / 2);
     }
     this.flow = \u043F\u0435\u0440\u0435\u043A\u043B\u0430\u0434 ? this.flow : this.clip.createDiv("er-flow");
+    this._paintPaging = erIsMobile() && !this.scrollMode;
+    this._flowLeft = gap / 2;
+    this.flow.toggleClass("er-flow-paint", this._paintPaging);
     if (!this.flow.dataset.erFlow) this.flow.dataset.erFlow = "f" + Math.random().toString(36).slice(2);
     this.flow.style.cssText = `
       width:${flowW}px;
@@ -60274,6 +60321,14 @@ var Paginator = class {
       this._cachedBlocks = null;
       this._orderedBlocks = null;
     }
+    if (!\u043F\u0435\u0440\u0435\u043A\u043B\u0430\u0434) {
+      const images = [...this.flow.querySelectorAll("img[src]")];
+      await Promise.race([
+        Promise.all(images.map((img) => typeof img.decode === "function" ? img.decode().catch(() => {
+        }) : Promise.resolve())),
+        new Promise((resolve) => window.setTimeout(resolve, 2500))
+      ]);
+    }
     await new Promise((r) => window.requestAnimationFrame(r));
     await new Promise((r) => window.requestAnimationFrame(r));
     const figMaxH = Math.max(40, aHinner - 24);
@@ -60329,6 +60384,10 @@ var Paginator = class {
     }
     let nPhys = measure();
     this.flow.style.width = `${Math.ceil(nPhys * slot) - gap}px`;
+    this._paintPaging = erIsMobile();
+    this.flow.toggleClass("er-flow-paint", this._paintPaging);
+    this._flowLeft = gap / 2;
+    this.flow.style.willChange = this._paintPaging ? "auto" : "transform";
     await new Promise((r) => window.requestAnimationFrame(r));
     await new Promise((r) => window.requestAnimationFrame(r));
     nPhys = Math.max(nPhys, measure());
@@ -60417,6 +60476,13 @@ var Paginator = class {
       return;
     }
     this.flow.style.top = this._vOffset() + "px";
+    if (this._paintPaging) {
+      this.flow.removeClass("er-flow-anim");
+      this.flow.addClass("er-flow-paint");
+      this.flow.style.removeProperty("transform");
+      this.flow.style.left = `${(this._flowLeft || 0) - Math.round(this._spreadOffset())}px`;
+      return;
+    }
     const t = `translate3d(${-Math.round(this._spreadOffset())}px, 0, 0)`;
     if (!animate) {
       this.flow.removeClass("er-flow-anim");
@@ -65735,6 +65801,7 @@ var LibraryModal = class extends import_obsidian.Modal {
     this.containerEl.addClass("er-modal-lib");
     modalEl.addClass("er-modal-lib");
     contentEl.addClass("er-lib");
+    contentEl.toggleClass("er-lib-mobile", erIsMobile(this.app));
     const t = erLibTheme(this.plugin.settings);
     modalEl.style.setProperty("--er-lib-bg", t.bg);
     modalEl.style.setProperty("--er-lib-text", t.text);
@@ -65782,7 +65849,9 @@ var LibraryModal = class extends import_obsidian.Modal {
     });
     const settingsButton = action("\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0447\u0442\u0435\u043D\u0438\u044F", "", () => this.openReadingSettings());
     svgIcon(settingsButton, "sliders");
-    const createFolder = action("\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043F\u0430\u043F\u043A\u0443", "\uFF0B \u041F\u0430\u043F\u043A\u0430", () => this.createFolder());
+    const createFolder = action("\u0421\u043E\u0437\u0434\u0430\u0442\u044C \u043F\u0430\u043F\u043A\u0443", "", () => this.createFolder());
+    svgIcon(createFolder, "plus");
+    createFolder.createSpan({ cls: "er-lib-folder-label", text: "\u041F\u0430\u043F\u043A\u0430" });
     this._setupDropZone();
     const search = hdr.createDiv("er-lib-search");
     const sIc = search.createDiv("er-lib-search-ic");
@@ -65791,16 +65860,28 @@ var LibraryModal = class extends import_obsidian.Modal {
     input.value = this._searchQuery || "";
     const count = hdr.createDiv("er-lib-count");
     const sizeWrap = hdr.createDiv("er-lib-size");
+    const mobile = erIsMobile(this.app);
+    const sizeKey = mobile ? "libCoverSizeMobile" : "libCoverSize";
+    const defaultSize = mobile ? 132 : 176;
+    const minimumSize = mobile ? 100 : 110;
+    const maximumSize = mobile ? 220 : 300;
+    const coverSize = () => {
+      const value = Number(this.plugin.settings[sizeKey]);
+      return Math.max(minimumSize, Math.min(maximumSize, Number.isFinite(value) && value > 0 ? value : defaultSize));
+    };
+    sizeWrap.setAttribute("aria-label", mobile ? "\u0420\u0430\u0437\u043C\u0435\u0440 \u043A\u0430\u0440\u0442\u043E\u0447\u0435\u043A \u043D\u0430 \u0442\u0435\u043B\u0435\u0444\u043E\u043D\u0435" : "\u0420\u0430\u0437\u043C\u0435\u0440 \u043A\u0430\u0440\u0442\u043E\u0447\u0435\u043A \u043D\u0430 \u043A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440\u0435");
+    const sizeLabel = sizeWrap.createSpan({ cls: "er-lib-size-label", text: "\u041A\u0430\u0440\u0442\u043E\u0447\u043A\u0438" });
     const applySize = () => {
-      const px = Math.max(110, Math.min(300, this.plugin.settings.libCoverSize || 176));
-      if (this._grid) this._grid.style.gridTemplateColumns = `repeat(auto-fill,minmax(${px}px,1fr))`;
+      const px = coverSize();
+      if (this._grid) this._grid.style.gridTemplateColumns = `repeat(auto-fill,minmax(min(100%,${px}px),1fr))`;
+      sizeLabel.setAttribute("title", `${px}px`);
     };
     const mkSz = (label, d, aria) => {
-      const b = sizeWrap.createDiv("er-lib-szbtn");
+      const b = sizeWrap.createEl("button", { cls: "er-lib-szbtn", attr: { type: "button" } });
       b.setText(label);
       b.setAttribute("aria-label", aria);
       b.addEventListener("click", async () => {
-        this.plugin.settings.libCoverSize = Math.max(110, Math.min(300, (this.plugin.settings.libCoverSize || 176) + d));
+        this.plugin.settings[sizeKey] = Math.max(minimumSize, Math.min(maximumSize, coverSize() + d));
         applySize();
         window.requestAnimationFrame(() => this._sizeCovers());
         await this.plugin.saveAll();
@@ -65954,7 +66035,9 @@ var LibraryModal = class extends import_obsidian.Modal {
     const open = card.createEl("button", { cls: "er-lib-folder-open" });
     open.setAttribute("aria-label", `\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u0430\u043F\u043A\u0443 ${folder.name}`);
     const cover = open.createDiv("er-lib-cover er-lib-folder-cover");
-    cover.createSpan({ cls: "er-lib-folder-icon", text: "\u{1F4C1}" });
+    const folderIcon = cover.createSpan({ cls: "er-lib-folder-icon" });
+    folderIcon.setAttribute("aria-hidden", "true");
+    svgIcon(folderIcon, "folder-open");
     const info2 = open.createDiv("er-lib-info");
     info2.createDiv({ cls: "er-lib-book-title er-lib-folder-name", text: folder.name });
     info2.createDiv({ cls: "er-lib-book-meta er-lib-folder-count", text: `${count} \u043A\u043D\u0438\u0433` });
@@ -66521,13 +66604,17 @@ var ReaderModal = class extends import_obsidian.Modal {
     this._goalNotified = this.plugin.getTodaySeconds() >= this.plugin.getGoalSeconds();
     updateGoalBar(this);
     updateTimerBtn(this);
-    this._lastW = this.areaEl.clientWidth;
+    this._lastW = this.pager.builtWidth || this.areaEl.clientWidth;
+    this._lastH = this.pager.builtHeight || this.areaEl.clientHeight;
     this._resizeObs = new ResizeObserver(() => {
       window.clearTimeout(this._rsT);
       this._rsT = window.setTimeout(() => {
+        var _a2;
         const w = this.areaEl ? this.areaEl.clientWidth : 0;
-        if (w && Math.abs(w - (this._lastW || 0)) > 4) {
+        const h = ((_a2 = this.areaEl) == null ? void 0 : _a2.clientHeight) || 0;
+        if (w && h && (Math.abs(w - (this._lastW || 0)) > 4 || Math.abs(h - (this._lastH || 0)) > 4)) {
           this._lastW = w;
+          this._lastH = h;
           this._repaginate();
         }
       }, 180);
@@ -66548,6 +66635,7 @@ var ReaderModal = class extends import_obsidian.Modal {
   _buildDOM() {
     const root = this.contentEl;
     root.empty();
+    root.addClass("er-reader-overlay");
     const pb = root.createDiv("er-pbar");
     this.pbarFill = pb.createDiv("er-pbar-fill");
     const top = root.createDiv("er-top");
@@ -66571,35 +66659,28 @@ var ReaderModal = class extends import_obsidian.Modal {
     this.timerBtnEl.setAttribute("aria-label", __ertr("\u0422\u0430\u0439\u043C\u0435\u0440: \u0441\u043A\u043E\u043B\u044C\u043A\u043E \u043E\u0441\u0442\u0430\u043B\u043E\u0441\u044C \u0434\u043E \u0446\u0435\u043B\u0438 \u2014 \u0441\u0442\u0430\u0440\u0442/\u043F\u0430\u0443\u0437\u0430"));
     this.timerBtnEl.addEventListener("click", () => toggleTimerSession(this));
     updateTimerBtn(this);
-    const moreBtn = tr.createDiv("er-ibtn er-b-more");
-    svgIcon(moreBtn, "more-horizontal");
-    moreBtn.setAttribute("aria-label", __ertr("\u0415\u0449\u0451"));
-    moreBtn.addEventListener("click", (e) => {
-      const menu = new import_obsidian.Menu();
-      menu.addItem((it) => it.setTitle(__ertr("\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u043A\u043D\u0438\u0433\u0435")).setIcon("search").onClick(() => {
-        this._togglePanel("find");
-        if (this._findInput) erAutoFocus(this._findInput, 80);
-      }));
-      menu.addItem((it) => it.setTitle(__ertr("\u041E\u0433\u043B\u0430\u0432\u043B\u0435\u043D\u0438\u0435")).setIcon("list").onClick(() => this._togglePanel("toc")));
-      menu.addItem((it) => it.setTitle(__ertr("\u0412\u044B\u0434\u0435\u043B\u0435\u043D\u0438\u044F")).setIcon("highlighter").onClick(() => this._togglePanel("highlights")));
-      menu.addItem((it) => it.setTitle(__ertr("\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u043F\u043E\u0437\u0438\u0446\u0438\u044E")).setIcon("save").onClick(() => this.saveNow()));
-      menu.addItem((it) => it.setTitle(__ertr("\u041F\u0435\u0440\u0435\u0440\u0438\u0441\u043E\u0432\u0430\u0442\u044C \u043A\u043D\u0438\u0433\u0443")).setIcon("refresh-cw").onClick(async () => {
-        await this._repaginate();
-        new import_obsidian.Notice(__ertr("\u041A\u043D\u0438\u0433\u0430 \u043F\u0435\u0440\u0435\u0440\u0438\u0441\u043E\u0432\u0430\u043D\u0430"));
-      }));
-      menu.addItem((it) => it.setTitle(__ertr("\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u0442\u0430\u0439\u043C\u0435\u0440")).setIcon("rotate-ccw").onClick(() => resetTimerSession(this)));
-      menu.addItem((it) => it.setTitle(__ertr("\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0447\u0442\u0435\u043D\u0438\u044F")).setIcon("sliders").onClick(() => new ReadSettingsModal(this.app, this).open()));
-      addBookFileMenu(this.app, menu, this.file);
-      menu.addSeparator();
-      menu.addItem((it) => it.setTitle(__ertr("\u0417\u0430\u043A\u0440\u044B\u0442\u044C \u043A\u043D\u0438\u0433\u0443")).setIcon("x").onClick(() => this.close()));
-      menu.showAtMouseEvent(e);
-    });
+    top.appendChild(this.timerBtnEl);
+    const topAction = (icon2, label, run) => {
+      const button = tr.createEl("button", { cls: "er-ibtn", attr: { type: "button", "aria-label": label, title: label } });
+      svgIcon(button, icon2);
+      button.addEventListener("click", run);
+      return button;
+    };
+    topAction("save", "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u043F\u043E\u0437\u0438\u0446\u0438\u044E", () => this.saveNow());
+    topAction("rotate-ccw", "\u041E\u0431\u043D\u043E\u0432\u0438\u0442\u044C \u043A\u043D\u0438\u0433\u0443", () => this.bookHtml ? this._repaginate() : this._loadBook());
     this.areaEl = root.createDiv("er-area er-marea");
     if ((this.plugin.settings.navMode || "buttons") === "click") root.addClass("er-navclick");
     const bot = root.createDiv("er-bot");
-    const pv = bot.createDiv("er-navbtn");
-    svgIcon(pv, "chevron-left");
-    pv.addEventListener("click", () => this._nav("prev"));
+    const bottomActions = bot.createDiv("er-reader-actions");
+    const bottomAction = (icon2, label, run) => {
+      const button = bottomActions.createEl("button", { cls: "er-ibtn", attr: { type: "button", "aria-label": label, title: label } });
+      svgIcon(button, icon2);
+      button.addEventListener("click", run);
+    };
+    bottomAction("sliders", "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0447\u0442\u0435\u043D\u0438\u044F", () => new ReadSettingsModal(this.app, this).open());
+    bottomAction("search", "\u041F\u043E\u0438\u0441\u043A \u043F\u043E \u043A\u043D\u0438\u0433\u0435", () => this._togglePanel("find"));
+    bottomAction("highlighter", "\u0417\u0430\u043C\u0435\u0442\u043A\u0438 \u0438 \u0432\u044B\u0434\u0435\u043B\u0435\u043D\u0438\u044F", () => this._togglePanel("highlights"));
+    bottomAction("list", "\u041E\u0433\u043B\u0430\u0432\u043B\u0435\u043D\u0438\u0435", () => this._togglePanel("toc"));
     const center = bot.createDiv("er-bot-center");
     this.locEl = center.createDiv("er-loc er-loc-clickable");
     this.locEl.setAttribute("aria-label", __ertr("\u041F\u0435\u0440\u0435\u0439\u0442\u0438 \u043A \u0441\u0442\u0440\u0430\u043D\u0438\u0446\u0435"));
@@ -66613,9 +66694,6 @@ var ReaderModal = class extends import_obsidian.Modal {
     });
     this.pctEl = center.createDiv("er-pct");
     this.pctEl.setText("0%");
-    const nx = bot.createDiv("er-navbtn");
-    svgIcon(nx, "chevron-right");
-    nx.addEventListener("click", () => this._nav("next"));
     this.overlayEl = root.createDiv("er-overlay");
     this.overlayEl.addEventListener("click", () => this._closePanel());
     this.settPan = root.createDiv("er-panel");
@@ -66632,26 +66710,37 @@ var ReaderModal = class extends import_obsidian.Modal {
     this._selDoc = docOf(this.areaEl);
     this._selDoc.addEventListener("selectionchange", this._selHandler);
     this.areaEl.addEventListener("click", (e) => {
-      var _a2, _b, _c;
+      var _a2, _b;
       const refEl = ((_a2 = e.target) == null ? void 0 : _a2.nodeType) === 1 ? e.target.closest("[data-er-ref]") : null;
       if (refEl) {
         e.preventDefault();
         e.stopPropagation();
         if (followFootnote(this, refEl.getAttribute("data-er-ref"))) return;
       }
-      const imgEl = ((_b = e.target) == null ? void 0 : _b.nodeType) === 1 ? e.target.closest("img") : null;
-      if (imgEl && imgEl.src) {
-        e.preventDefault();
-        openImageLightbox(imgEl.currentSrc || imgEl.src, this.app, imgEl);
-        return;
-      }
-      const span = ((_c = e.target) == null ? void 0 : _c.nodeType) === 1 ? e.target.closest(".er-hl") : null;
+      const span = ((_b = e.target) == null ? void 0 : _b.nodeType) === 1 ? e.target.closest(".er-hl") : null;
       if (span) {
         e.preventDefault();
         this._openHlEdit(span.getAttribute("data-hl-id"));
       } else if (this._editHlId) this._hideHlPopup();
     });
-    let sx = 0, sy = 0, dir = null, longPress = false, lpTimer = null, hadSel = false;
+    let tapPointer = null;
+    this.contentEl.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "touch" || !this.areaEl.contains(e.target)) return;
+      tapPointer = { id: e.pointerId, x: e.clientX, y: e.clientY, at: e.timeStamp, moved: false };
+    }, true);
+    this.contentEl.addEventListener("pointermove", (e) => {
+      if ((tapPointer == null ? void 0 : tapPointer.id) === e.pointerId && (Math.abs(e.clientX - tapPointer.x) > 12 || Math.abs(e.clientY - tapPointer.y) > 12)) tapPointer.moved = true;
+    }, true);
+    this.contentEl.addEventListener("pointercancel", () => {
+      tapPointer = null;
+    }, true);
+    this.contentEl.addEventListener("pointerup", (e) => {
+      const tap = tapPointer;
+      tapPointer = null;
+      if (!tap || tap.id !== e.pointerId || tap.moved || e.timeStamp - tap.at >= 350) return;
+      if (this._handleReaderTap(e)) this._lastTapAt = Date.now();
+    }, true);
+    let sx = 0, sy = 0, dir = null, longPress = false, lpTimer = null, hadSel = false, touchStarted = 0;
     this.areaEl.addEventListener("touchstart", (e) => {
       if (e.touches.length > 1) {
         dir = "v";
@@ -66661,8 +66750,9 @@ var ReaderModal = class extends import_obsidian.Modal {
       sy = e.touches[0].clientY;
       dir = null;
       longPress = false;
+      touchStarted = e.timeStamp;
       const sel = selOf(this.areaEl);
-      hadSel = !!(sel && !sel.isCollapsed);
+      hadSel = !!(sel && !sel.isCollapsed && sel.toString().trim() && (this.areaEl.contains(sel.anchorNode) || this.areaEl.contains(sel.focusNode)));
       window.clearTimeout(lpTimer);
       lpTimer = window.setTimeout(() => {
         longPress = true;
@@ -66677,7 +66767,7 @@ var ReaderModal = class extends import_obsidian.Modal {
       if (dx < 8 && dy < 8) return;
       window.clearTimeout(lpTimer);
       const sel = selOf(this.areaEl);
-      if (longPress || hadSel || sel && !sel.isCollapsed) {
+      if (longPress || hadSel || sel && !sel.isCollapsed && sel.toString().trim()) {
         dir = "v";
         return;
       }
@@ -66686,28 +66776,49 @@ var ReaderModal = class extends import_obsidian.Modal {
     }, { passive: false });
     this.areaEl.addEventListener("touchend", (e) => {
       window.clearTimeout(lpTimer);
-      if (dir !== "h") return;
-      const dx = e.changedTouches[0].clientX - sx;
-      if (Math.abs(dx) > 44) this._nav(dx < 0 ? "next" : "prev");
-    }, { passive: true });
-    this.areaEl.addEventListener("click", (e) => handleAreaNavClick(this, e));
-    const armImmersive = () => {
-      const root2 = this.contentEl;
-      if (!root2) return;
-      if (!this.plugin.settings.immersive) {
-        root2.removeClass("er-immersive");
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - sx, dy = touch.clientY - sy;
+      if (dir === "h" && Math.abs(dx) > 44) {
+        this._lastSwipeAt = Date.now();
+        this._nav(dx < 0 ? "next" : "prev");
         return;
       }
-      root2.removeClass("er-immersive");
-      window.clearTimeout(this._immTimer);
-      this._immTimer = window.setTimeout(() => {
-        if (this.bookHtml && this.contentEl) this.contentEl.addClass("er-immersive");
-      }, 2600);
-    };
-    this._armImmersive = armImmersive;
-    this.contentEl.addEventListener("touchstart", armImmersive, { passive: true });
-    this.contentEl.addEventListener("pointerdown", armImmersive);
-    armImmersive();
+      if (winOf(this.areaEl).PointerEvent || Math.abs(dx) > 12 || Math.abs(dy) > 12 || longPress && e.timeStamp - touchStarted >= 350) return;
+      if (this._handleReaderTap({ target: e.target, clientX: touch.clientX })) this._lastTapAt = Date.now();
+    }, { passive: true });
+    this.areaEl.addEventListener("click", (e) => {
+      if (e.defaultPrevented || Date.now() - (this._lastSwipeAt || 0) < 450 || Date.now() - (this._lastTapAt || 0) < 500) return;
+      this._handleReaderTap(e);
+    });
+  }
+  _handleReaderTap(e) {
+    var _a2, _b, _c;
+    const target = ((_a2 = e.target) == null ? void 0 : _a2.nodeType) === 1 ? e.target : (_b = e.target) == null ? void 0 : _b.parentElement;
+    if (target == null ? void 0 : target.closest("a,button,input,[data-er-ref],.er-hl,.er-load-error")) return false;
+    const selection = selOf(this.areaEl);
+    if (selection && !selection.isCollapsed && (this.areaEl.contains(selection.anchorNode) || this.areaEl.contains(selection.focusNode))) {
+      selection.removeAllRanges();
+      this._hideHlPopup();
+    }
+    const area = this.areaEl.getBoundingClientRect();
+    const left = Math.max(0, area.left);
+    const right = Math.min(winOf(this.areaEl).innerWidth || area.right, (_c = area.right) != null ? _c : area.left + area.width);
+    const rect = { width: Math.max(0, right - left) };
+    const x = e.clientX - left;
+    if (rect.width && this.plugin.settings.navMode === "click") {
+      if (x < rect.width * 0.28) {
+        this._nav("prev");
+        return true;
+      }
+      if (x > rect.width * 0.72) {
+        this._nav("next");
+        return true;
+      }
+    }
+    const hidden = !this.contentEl.hasClass("er-chrome-hidden");
+    this.contentEl.toggleClass("er-chrome-hidden", hidden);
+    for (const bar of this.contentEl.querySelectorAll(".er-top,.er-bot")) bar.hidden = hidden;
+    return true;
   }
   // Settings changes (theme/font/size/line-height) → rebuild the pages, keeping
   // the current reading %. (Named _applyContentStyle for the panel callers.)
@@ -66771,6 +66882,7 @@ var ReaderModal = class extends import_obsidian.Modal {
         this._pdfLazy = res.lazy;
         this._pdfOutline = res.outline;
       }
+      if (!String(this.bookHtml || "").trim()) throw new Error("\u0412 \u043A\u043D\u0438\u0433\u0435 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u043E \u0441\u043E\u0434\u0435\u0440\u0436\u0438\u043C\u043E\u0435 \u0434\u043B\u044F \u043E\u0442\u043E\u0431\u0440\u0430\u0436\u0435\u043D\u0438\u044F");
       checkAbort(signal);
       this.tocItems = buildTocItems(this.bookHtml, this._pdfOutline);
       this._buildTocPanel();
@@ -66781,11 +66893,15 @@ var ReaderModal = class extends import_obsidian.Modal {
       const pct = (saved == null ? void 0 : saved.pct) != null ? saved.pct : 0;
       this.areaEl.addClass("er-booting");
       erShowVeil(this);
-      window.setTimeout(() => {
-        if (this.areaEl) this.areaEl.removeClass("er-booting");
-        erHideVeil(this);
-      }, 3e3);
       await this.pager.build(this.areaEl, this.bookHtml, this.plugin.settings, 0);
+      if (this.ext === "epub" && this.bookHtml.length > 25e4) {
+        this.areaEl.removeClass("er-booting");
+        await new Promise((resolve) => window.requestAnimationFrame(resolve));
+        await new Promise((resolve) => window.requestAnimationFrame(resolve));
+        checkAbort(signal);
+        await this.pager.build(this.areaEl, this.bookHtml, this.plugin.settings, 0);
+        checkAbort(signal);
+      }
       const hasBlock = saved && typeof saved.block === "number" && saved.block >= 0;
       const target = hasBlock ? this.pager.spreadForBlock(saved.block) : Math.round(pct * Math.max(0, this.pager.total - 1));
       this._renderFlowHighlights();
@@ -66799,8 +66915,14 @@ var ReaderModal = class extends import_obsidian.Modal {
     } catch (e) {
       if (e.name === "AbortError") return;
       console.error("ReaderModal:", e);
+      this.areaEl.removeClass("er-booting");
+      erHideVeil(this);
       this.areaEl.empty();
-      this.areaEl.createEl("p", { cls: "er-load-error", text: __ertr("\u041E\u0448\u0438\u0431\u043A\u0430: {0}", e.message) });
+      this.contentEl.removeClass("er-chrome-hidden");
+      const errorBox = this.areaEl.createDiv("er-load-error");
+      errorBox.createEl("p", { text: __ertr("\u041E\u0448\u0438\u0431\u043A\u0430: {0}", e.message) });
+      const retry = errorBox.createEl("button", { text: "\u041F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u044C \u043E\u0442\u043A\u0440\u044B\u0442\u0438\u0435" });
+      retry.addEventListener("click", () => this._loadBook());
     }
   }
   // First open of a book \u2192 the setup screen (create / pick / skip). Same rules as
@@ -67030,6 +67152,8 @@ var ReaderModal = class extends import_obsidian.Modal {
       this._closePanel();
       return;
     }
+    this.contentEl.removeClass("er-chrome-hidden");
+    for (const bar of this.contentEl.querySelectorAll(".er-top,.er-bot")) bar.hidden = false;
     this._hideHlPopup();
     if (name === "highlights") this._buildHlPanel();
     if (name === "settings") this._renderHistory();
@@ -67037,6 +67161,7 @@ var ReaderModal = class extends import_obsidian.Modal {
     this.settPan.classList.toggle("er-panel-open", name === "settings");
     this.tocPan.classList.toggle("er-panel-open", name === "toc");
     if (name === "toc") (_a2 = this._tocWidget) == null ? void 0 : _a2.open();
+    this.findPan.classList.toggle("er-panel-open", name === "find");
     this.hlPan.classList.toggle("er-panel-open", name === "highlights");
     this.overlayEl.classList.add("er-overlay-on");
   }
@@ -67530,14 +67655,7 @@ var SettingsTab = class extends import_obsidian.PluginSettingTab {
   // what a reader reaches for mid-book. Same controls, same behaviour.
   _groupAppearance(c) {
     c.createEl("h3", { text: __ertr("\u0420\u0435\u0436\u0438\u043C\u044B") });
-    new import_obsidian.Setting(c).setName(__ertr("\u0421\u0432\u043E\u0439 \u0432\u0438\u0434 \u043D\u0430 \u043A\u0430\u0436\u0434\u043E\u043C \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0435")).setDesc(__ertr(
-      "\u0420\u0430\u0437\u043C\u0435\u0440 \u0448\u0440\u0438\u0444\u0442\u0430, \u0442\u0435\u043C\u0430, \u0448\u0440\u0438\u0444\u0442, \u0438\u043D\u0442\u0435\u0440\u0432\u0430\u043B, \u0447\u0438\u0441\u043B\u043E \u043A\u043E\u043B\u043E\u043D\u043E\u043A \u0438 \u0432\u044B\u0440\u0430\u0432\u043D\u0438\u0432\u0430\u043D\u0438\u0435 \u0437\u0430\u043F\u043E\u043C\u0438\u043D\u0430\u044E\u0442\u0441\u044F \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E \u0434\u043B\u044F \u043A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440\u0430, \u043F\u043B\u0430\u043D\u0448\u0435\u0442\u0430 \u0438 \u0442\u0435\u043B\u0435\u0444\u043E\u043D\u0430. \u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0445\u0440\u0430\u043D\u044F\u0442\u0441\u044F \u0432 \u043E\u0434\u043D\u043E\u043C \u0444\u0430\u0439\u043B\u0435 \u0438 \u0441\u0438\u043D\u0445\u0440\u043E\u043D\u0438\u0437\u0438\u0440\u0443\u044E\u0442\u0441\u044F, \u043D\u043E \u043A\u0430\u0436\u0434\u043E\u0435 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E \u0447\u0438\u0442\u0430\u0435\u0442 \u0441\u0432\u043E\u044E \u0447\u0430\u0441\u0442\u044C, \u043F\u043E\u044D\u0442\u043E\u043C\u0443 \u043A\u0440\u0443\u043F\u043D\u044B\u0439 \u0448\u0440\u0438\u0444\u0442 \u043D\u0430 \u0442\u0435\u043B\u0435\u0444\u043E\u043D\u0435 \u0431\u043E\u043B\u044C\u0448\u0435 \u043D\u0435 \u0434\u0435\u043B\u0430\u0435\u0442 \u0435\u0433\u043E \u043E\u0433\u0440\u043E\u043C\u043D\u044B\u043C \u043D\u0430 \u043A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440\u0435. \u041F\u0430\u043F\u043A\u0438, \u0448\u0430\u0431\u043B\u043E\u043D\u044B \u0438 \u043F\u0440\u043E\u0433\u0440\u0435\u0441\u0441 \u0447\u0442\u0435\u043D\u0438\u044F \u043E\u0441\u0442\u0430\u044E\u0442\u0441\u044F \u043E\u0431\u0449\u0438\u043C\u0438. \u042D\u0442\u043E \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u043E: {0}.",
-      __ertr({ desktop: "\u043A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440", tablet: "\u043F\u043B\u0430\u043D\u0448\u0435\u0442", phone: "\u0442\u0435\u043B\u0435\u0444\u043E\u043D" }[erDeviceKey()])
-    )).addToggle((t) => t.setValue(this.plugin.settings.perDevice === true).onChange(async (v) => {
-      this.plugin.settings.perDevice = v;
-      await this.plugin.saveAll();
-      this.display();
-    }));
+    c.createDiv({ cls: "er-pan-hint", text: `\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u044E\u0442\u0441\u044F \u043E\u0442\u0434\u0435\u043B\u044C\u043D\u043E \u0434\u043B\u044F \u0442\u0435\u043B\u0435\u0444\u043E\u043D\u0430, \u043F\u043B\u0430\u043D\u0448\u0435\u0442\u0430 \u0438 \u043A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440\u0430. \u0421\u0435\u0439\u0447\u0430\u0441: ${{ desktop: "\u043A\u043E\u043C\u043F\u044C\u044E\u0442\u0435\u0440", phone: "\u0442\u0435\u043B\u0435\u0444\u043E\u043D", tablet: "\u043F\u043B\u0430\u043D\u0448\u0435\u0442" }[erDeviceKey()]}. \u041A\u043D\u0438\u0433\u0438 \u0438 \u043F\u0440\u043E\u0433\u0440\u0435\u0441\u0441 \u043E\u0441\u0442\u0430\u044E\u0442\u0441\u044F \u043E\u0431\u0449\u0438\u043C\u0438.` });
     new import_obsidian.Setting(c).setName(__ertr("\u0420\u0435\u0436\u0438\u043C \u0434\u043B\u044F e-ink \u0447\u0438\u0442\u0430\u043B\u043E\u043A")).setDesc(__ertr("\u0414\u043B\u044F Obsidian \u043D\u0430 Android-\u0447\u0438\u0442\u0430\u043B\u043A\u0435 \u0441 \u044D\u043B\u0435\u043A\u0442\u0440\u043E\u043D\u043D\u044B\u043C\u0438 \u0447\u0435\u0440\u043D\u0438\u043B\u0430\u043C\u0438. \u0423\u0431\u0438\u0440\u0430\u0435\u0442 \u0430\u043D\u0438\u043C\u0430\u0446\u0438\u0438, \u043F\u043B\u0430\u0432\u043D\u044B\u0435 \u043F\u0435\u0440\u0435\u0445\u043E\u0434\u044B, \u0442\u0435\u043D\u0438 \u0438 \u0440\u0430\u0437\u043C\u044B\u0442\u0438\u0435 \u2014 \u043E\u043D\u0438 \u043E\u0441\u0442\u0430\u0432\u043B\u044F\u044E\u0442 \u043D\u0430 \u0442\u0430\u043A\u043E\u043C \u044D\u043A\u0440\u0430\u043D\u0435 \u0441\u043B\u0435\u0434\u044B. \u0427\u0438\u0441\u0442\u044B\u0439 \u0447\u0451\u0440\u043D\u044B\u0439 \u043D\u0430 \u0431\u0435\u043B\u043E\u043C, \u0436\u0451\u0441\u0442\u043A\u0438\u0435 \u0440\u0430\u043C\u043A\u0438, \u043A\u0440\u0443\u043F\u043D\u0435\u0435 \u043A\u043D\u043E\u043F\u043A\u0438, \u043B\u0438\u0441\u0442\u0430\u043D\u0438\u0435 \u0431\u0435\u0437 \u0441\u043A\u043E\u043B\u044C\u0436\u0435\u043D\u0438\u044F.")).addToggle((t) => t.setValue(this.plugin.settings.einkMode === true).onChange(async (v) => {
       this.plugin.settings.einkMode = v;
       if (v) this.plugin.settings.theme = "eink";

@@ -1,5 +1,21 @@
 # Curd Reader changelog
 
+## 1.0.1 — 2026-10-11
+
+- Complete a second layout pass on first opening large mobile EPUBs, preserving the saved position and keeping the loading screen until layout finishes.
+- Mandatory separate phone/tablet/desktop preference profiles, including reading timer, layout and reading logs, with migration of existing settings.
+- Reliable Android center taps to hide toolbars, symmetric edge navigation in scroll mode, and adjustable mobile text margins.
+- Overlay mobile reader toolbars with tap-to-toggle visibility, centered optional timer and direct search, highlights and contents actions.
+- Fix the mobile search panel opening and show a visible retryable loading error.
+- Use paint-based page positioning for very wide mobile books to avoid giant transformed layers.
+- Compact mobile library toolbar, search, breadcrumbs and reading filters.
+- Separate saved mobile card size with a two-column default on typical phone widths.
+- Prevent folder cards from inheriting fixed mobile button heights and gallery rows from stretching or overlapping.
+- Accessible card-size buttons and a regression check for independent mobile/desktop persistence.
+- Bottom scroll clearance for Obsidian's mobile toolbar, isolated cover layers below host controls, and consistent SVG folder icons using the Obsidian theme accent.
+
+Validation: 63 automated tests pass; ESLint reports 0 errors and 22 existing warnings. The large-EPUB first-opening workaround and device rendering still need confirmation on real Android hardware. Mobile image zoom by double tap has been removed.
+
 ## 1.0.0 — 2026-10-10
 
 First independent MIT release by DK-0x3, based on Book Reader 3.1.2 by Elton Labs. Local development versions 3.1.3–3.1.7 are consolidated here.

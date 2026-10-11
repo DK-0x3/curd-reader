@@ -9,14 +9,19 @@ Maintained by **DK-0x3**. An independent MIT fork of [Book Reader by Elton Labs]
 - Virtual gallery folders up to five levels deep; physical books stay in place.
 - Covers, progress, global search, status filters and a library refresh button.
 - Lazy searchable contents with current-section highlighting, parent expansion and automatic reveal.
-- Paged/scrolling reading, themes and global typography settings available from the library.
+- Paged/scrolling reading, themes and device-specific typography settings available from the library.
 - Highlights, comments, book notes, exports and exact links back to the passage/PDF page.
 - Restore history with timestamps and excerpts; delete points or clear history while retaining the current position.
+- Compact mobile library with its own card size and theme-accent folder icons.
+- Floating mobile reader controls, center-tap visibility, edge navigation and adjustable text margins.
+- Independent phone, tablet and desktop preferences, reading timers and logs.
 - Offline PDF worker, fonts, CMaps and decoders embedded in the release.
 
 ## Install
 
-First independent release: **1.0.0**. Requires Obsidian **1.11.4+**. Desktop and mobile code paths are supported; live verification on all devices has not been performed.
+Current release: **1.0.1**. Requires Obsidian **1.11.4+**. Desktop and mobile code paths are supported; live verification on all devices has not been performed.
+
+Reading preferences and timers are saved separately for phone, tablet and desktop. Existing preferences are copied into the profiles during the first upgrade, then each profile can be changed independently. On mobile, center taps toggle reader controls; in tap navigation mode, the left/right edges move backward/forward. Mobile text margins can be adjusted in reading settings.
 
 Curd Reader is **not yet in the Obsidian Community directory**. Fork submission is deferred pending [Obsidian's requirements](https://docs.obsidian.md/community-directory/developer-policies).
 
@@ -57,13 +62,13 @@ npm run build
 npm run release:prepare
 ```
 
-Release preparation creates the three installable files and checksums in `dist/1.0.0/`. See [development notes](docs/DEVELOPMENT.md).
+Release preparation creates the three installable files and checksums in `dist/1.0.1/`. See [development notes](docs/DEVELOPMENT.md).
 
 Tests cover real EPUB/PDF extraction, embedded resources, navigation, data protection, folders, contents and history. Live desktop/mobile, popout, two-device sync and large-book verification remain necessary. Full-book DOM virtualisation is not implemented. External sync is not transactional. Static checking retains documented upstream warnings.
 
 ## Changes, licence and support
 
-- [Changes](CHANGELOG.md), [release notes](docs/RELEASE-1.0.0.md), [commit description](docs/COMMIT-1.0.0.md).
+- [Changes](CHANGELOG.md), [release notes](docs/RELEASE-1.0.1.md), [commit description](docs/COMMIT-1.0.1.md).
 - [All audit fixes and work context](docs/WORKLOG.md).
 - [MIT licence](LICENSE), [third-party notices](NOTICE.md), verbatim dependency licences in `licenses/` and the generated bundle.
 - [Report an issue](https://github.com/DK-0x3/curd-reader/issues).
@@ -72,4 +77,4 @@ Elton Labs' original copyright is preserved. Archived upstream README/screenshot
 
 ## Russian documentation
 
-The detailed Russian audit, iteration history, completed work and remaining limitations are in [WORKLOG.md](docs/WORKLOG.md). This is the first independent Curd Reader release; local builds 3.1.3-3.1.7 were development iterations, not public Curd Reader releases.
+The detailed Russian audit, iteration history, completed work and remaining limitations are in [WORKLOG.md](docs/WORKLOG.md). Curd Reader 1.0.0 was the first independent release; 1.0.1 adds mobile improvements. Local builds 3.1.3–3.1.7 were development iterations, not public Curd Reader releases.

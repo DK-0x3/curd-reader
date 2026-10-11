@@ -1,6 +1,6 @@
 {
   "name": "curd-reader",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Read EPUB, FB2 and PDF books inside Obsidian, highlight passages and turn them into notes.",
   "main": "main.js",
   "type": "module",
