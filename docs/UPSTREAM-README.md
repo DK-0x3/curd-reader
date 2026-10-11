@@ -14,15 +14,15 @@ Works on desktop and on mobile (Android / iOS).
 > ordinary message. No GitHub account, no form. Every message is read, and the
 > next versions are built from them.
 
-![Book Reader](docs/promo-hero-en.jpg)
+![Book Reader](promo-hero-en.jpg)
 
 |  |  |
 | --- | --- |
-| ![Library](docs/promo-library-en.jpg) | ![Reading](docs/promo-reading-en.jpg) |
+| ![Library](promo-library-en.jpg) | ![Reading](promo-reading-en.jpg) |
 | **Library** — covers, progress and categories for every book. | **Reading** — a two-column spread, your font, size and theme. |
-| ![Highlights](docs/promo-highlights-en.jpg) | ![AI](docs/promo-ai-en.jpg) |
+| ![Highlights](promo-highlights-en.jpg) | ![AI](promo-ai-en.jpg) |
 | **Highlights → notes** — four colours, a comment, and a note with the quote, the book link and the page. | **Explain a passage** — a conversation, with the book's title sent as background context. |
-| ![Mobile](docs/promo-mobile-en.jpg) | ![Themes](docs/promo-themes-en.jpg) |
+| ![Mobile](promo-mobile-en.jpg) | ![Themes](promo-themes-en.jpg) |
 | **On the phone** — its own layout: gestures and «⋯», nothing else. Position and highlights travel with your vault. | **Four themes** — light, sepia, dark and e-ink, plus auto that follows your Obsidian theme. |
 
 ---
@@ -224,15 +224,15 @@ Built by **Elton** · [t.me/eltonlabs](https://t.me/eltonlabs) · feedback: [@bo
 > боту обычное сообщение. Ни аккаунта на GitHub, ни формы не нужно. Я читаю всё,
 > и следующие версии складываются именно из этих сообщений.
 
-![Book Reader](docs/promo-hero.jpg)
+![Book Reader](promo-hero.jpg)
 
 |  |  |
 | --- | --- |
-| ![Библиотека](docs/promo-library.jpg) | ![Чтение](docs/promo-reading.jpg) |
+| ![Библиотека](promo-library.jpg) | ![Чтение](promo-reading.jpg) |
 | **Библиотека** — обложки, прогресс и категории у каждой книги. | **Чтение** — разворот в две колонки, свой шрифт, размер и тема. |
-| ![Выделения](docs/promo-highlights.jpg) | ![ИИ](docs/promo-ai.jpg) |
+| ![Выделения](promo-highlights.jpg) | ![ИИ](promo-ai.jpg) |
 | **Выделения → заметки** — четыре цвета, комментарий и заметка с цитатой, ссылкой на книгу и страницей. | **Разбор фрагмента** — диалог, название книги уходит фоном. |
-| ![Телефон](docs/promo-mobile.jpg) | ![Темы](docs/promo-themes.jpg) |
+| ![Телефон](promo-mobile.jpg) | ![Темы](promo-themes.jpg) |
 | **На телефоне** — своя раскладка: жесты и «⋯», ничего лишнего. Позиция и выделения едут вместе с хранилищем. | **Четыре темы** — светлая, сепия, тёмная и e-ink, плюс авто — как в вашей теме Obsidian. |
 
 

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { Buffer } from "node:buffer";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -10,7 +11,26 @@ if (!/^[a-z0-9-]+$/.test(manifest.id)) throw new Error("Invalid plugin ID");
 await fs.access(path.join(vault, ".obsidian"));
 const files = ["main.js", "manifest.json", "styles.css"];
 const contents = await Promise.all(files.map(file => fs.readFile(path.join(root,file))));
-const target = path.join(vault, ".obsidian/plugins", manifest.id);
+let target = path.join(vault, ".obsidian/plugins", manifest.id);
+let installedId = manifest.id;
+// Update an existing development installation in place, preserving its data
+// and enabled-plugin entry. Fresh installations use the published Curd ID.
+try {
+  await fs.access(target);
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+  const legacy = path.join(vault, ".obsidian/plugins/elton-reader-books");
+  try {
+    const previous = JSON.parse(await fs.readFile(path.join(legacy, "manifest.json"), "utf8"));
+    if (previous.id === "elton-reader-books") {
+      target = legacy;
+      installedId = previous.id;
+      contents[files.indexOf("manifest.json")] = Buffer.from(JSON.stringify({ ...manifest, id: installedId }, null, 2) + "\n");
+    }
+  } catch (legacyError) {
+    if (legacyError.code !== "ENOENT") throw legacyError;
+  }
+}
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const backup = path.join(root, ".local/plugin-backups", stamp);
 for (const file of files) {
@@ -33,5 +53,5 @@ for (const [index, file] of files.entries()) {
   const installed = await fs.readFile(path.join(target, file));
   if (!installed.equals(contents[index])) throw new Error(`Verification failed: ${file}`);
 }
-console.log(`Installed Book Reader ${manifest.version}: ${target}`);
-console.log("Reload or enable Book Reader in Obsidian to load this build.");
+console.log(`Installed ${manifest.name} ${manifest.version} by ${manifest.author}: ${target} (${installedId})`);
+console.log(`Reload or enable ${manifest.name} in Obsidian to load this build.`);
