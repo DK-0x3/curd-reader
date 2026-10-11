@@ -66,6 +66,12 @@ Release preparation creates the three installable files and checksums in `dist/1
 
 Tests cover real EPUB/PDF extraction, embedded resources, navigation, data protection, folders, contents and history. Live desktop/mobile, popout, two-device sync and large-book verification remain necessary. Full-book DOM virtualisation is not implemented. External sync is not transactional. Static checking retains documented upstream warnings.
 
+## Contributors
+
+- **Elton Labs** — original Book Reader project, the foundation of this fork.
+- **DK-0x3** — Curd Reader development and maintenance.
+- **OpenAI Codex** — assistance with development, bug fixes and testing.
+
 ## Changes, licence and support
 
 - [Changes](CHANGELOG.md), [release notes](docs/RELEASE-1.0.1.md), [commit description](docs/COMMIT-1.0.1.md).
